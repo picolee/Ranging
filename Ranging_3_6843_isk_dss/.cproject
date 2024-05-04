@@ -190,4 +190,5 @@
 		<project id="out_of_box_6843_isk_dss.com.ti.ccstudio.buildDefinitions.C6000.ProjectType.1131088004" name="C6000" projectType="com.ti.ccstudio.buildDefinitions.C6000.ProjectType"/>
 	</storageModule>
 	<storageModule moduleId="scannerConfiguration"/>
+	<storageModule moduleId="org.eclipse.cdt.make.core.buildtargets"/>
 </cproject>

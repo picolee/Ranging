@@ -3,7 +3,6 @@
 	<name>Ranging_3_6843_isk_mss</name>
 	<comment></comment>
 	<projects>
-		<project>out_of_box_6843_isk_dss_1_30_01_03</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>

@@ -1,6 +1,6 @@
 #
 # This file was generated based on the configuration script:
-#     C:\Users\LeeLemay\workspace_v12\Ranging_3_6843_isk_dss\mmw_dss.cfg
+#     C:\Users\LeeLemay\OneDrive - quinc.tech, inc\Technical Work\Hardware Development\Sync Module\Software\Ranging\Ranging_3_6843_isk_dss\mmw_dss.cfg
 #
 # This makefile may be included in other makefiles that need to build
 # the libraries containing the compiled source files generated as
@@ -14,7 +14,7 @@
 #
 # The absolute path to the generated source directory (at the time the
 # sources were generated) is:
-#    C:\Users\LeeLemay\workspace_v12\Ranging_3_6843_isk_dss\src
+#    C:\Users\LeeLemay\OneDrive - quinc.tech, inc\Technical Work\Hardware Development\Sync Module\Software\Ranging\Ranging_3_6843_isk_dss\src
 #
 GEN_SRC_DIR ?= ../src
 
