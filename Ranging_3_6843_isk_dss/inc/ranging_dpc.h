@@ -625,6 +625,24 @@ typedef struct DPC_Ranging_Data_t
     /*! @brief  Chirp start time from TSCL */
     int32_t     responseStartTimeLow;
 
+    /*! @brief  Clock cycles spent finding the gold code peak */
+    int32_t     processingTime;
+
+    /*! @brief processing time to compute the magnitude of the ADC samples*/
+    uint32_t    magAdcTime;
+
+    /*! @brief processing time to compute the fft of the magnitude of the ADC samples*/
+    uint32_t    fftTime;
+
+    /*! @brief processing time to multiply the fft with the cmplx cnj of the gold code*/
+    uint32_t    vecmulTime;
+
+    /*! @brief processing time to compute the ifft of the vecmul*/
+    uint32_t    ifftTime;
+
+    /*! @brief processing time to compute the magnitude of the ifft*/
+    uint32_t    magIfftTime;
+
 } DPC_Ranging_Data;
 
 /*
@@ -687,61 +705,6 @@ typedef struct DPC_Ranging_ExecuteResultExportedInfo_t
  *        issuing @ref DPC_RANGING_IOCTL__STATIC_PRE_START_CFG
  */
 #define DPC_RANGING_IOCTL__STATIC_PRE_START_COMMON_CFG                     (DPM_CMD_DPC_START_INDEX + 1U)
-
-/**
- * @brief Command associated with @ref DPC_Ranging_CfarCfg_t for range dimension.
- */
-#define DPC_RANGING_IOCTL__DYNAMIC_CFAR_RANGE_CFG                          (DPM_CMD_DPC_START_INDEX + 2U)
-
-/**
- * @brief Command associated with @ref DPC_Ranging_CfarCfg_t for doppler dimension.
- */
-#define DPC_RANGING_IOCTL__DYNAMIC_CFAR_DOPPLER_CFG                        (DPM_CMD_DPC_START_INDEX + 3U)
-
-/**
- * @brief Command associated with @ref DPC_Ranging_MultiObjBeamFormingCfg_t
- */
-#define DPC_RANGING_IOCTL__DYNAMIC_MULTI_OBJ_BEAM_FORM_CFG                 (DPM_CMD_DPC_START_INDEX + 4U)
-
-/**
- * @brief Command associated with @ref DPC_Ranging_CalibDcRangeSigCfg_t
- */
-#define DPC_RANGING_IOCTL__DYNAMIC_CALIB_DC_RANGE_SIG_CFG                  (DPM_CMD_DPC_START_INDEX + 5U)
-
-/**
- * @brief Command associated with @ref DPC_Ranging_StaticClutterRemovalCfg_t
- */
-#define DPC_RANGING_IOCTL__DYNAMIC_STATICCLUTTER_REMOVAL_CFG                     (DPM_CMD_DPC_START_INDEX + 6U)
-
-/**
- * @brief Command associated with @ref DPU_AoAProc_compRxChannelBiasCfg_t
- */
-#define DPC_RANGING_IOCTL__DYNAMIC_COMP_RANGE_BIAS_AND_RX_CHAN_PHASE       (DPM_CMD_DPC_START_INDEX + 8U)
-
-/**
- * @brief Command associated with @ref DPC_Ranging_fovRangeCfg_t
- */
-#define DPC_RANGING_IOCTL__DYNAMIC_FOV_RANGE                               (DPM_CMD_DPC_START_INDEX + 9U)
-
-/**
- * @brief Command associated with @ref DPC_Ranging_fovDopplerCfg_t
- */
-#define DPC_RANGING_IOCTL__DYNAMIC_FOV_DOPPLER                             (DPM_CMD_DPC_START_INDEX + 10U)
-
-/**
- * @brief Command associated with @ref DPC_Ranging_fovAoaCfg_t
- */
-#define DPC_RANGING_IOCTL__DYNAMIC_FOV_AOA                                 (DPM_CMD_DPC_START_INDEX + 11U)
-
-/**
- * @brief Command associated with @ref DPC_Ranging_RangeAzimuthHeatMapCfg_t
- */
-#define DPC_RANGING_IOCTL__DYNAMIC_RANGE_AZIMUTH_HEAT_MAP                  (DPM_CMD_DPC_START_INDEX + 12U)
-
-/**
- * @brief Command associated with @ref DPC_Ranging_extMaxVelCfg_t
- */
-#define DPC_RANGING_IOCTL__DYNAMIC_EXT_MAX_VELOCITY                        (DPM_CMD_DPC_START_INDEX + 13U)
 
 /**
  * @brief This commands indicates to the DPC that the results DPC provided to the application

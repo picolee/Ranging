@@ -70,6 +70,7 @@
 /* Internal include Files */
 #include <inc/rangingdsp_internal.h>
 #include <inc/gold_code.h>
+#include <inc/line_fit.h>
 
 /* MATH utils library Include files */
 #include <ti/utils/mathutils/mathutils.h>
@@ -333,129 +334,6 @@ static int32_t rangingDSP_ConfigDataInEDMA
     {
         goto exit;
     }
-
-    /* Copy data from ADCbuffer to internal adcbufIn scratch buffer 
-      Data is in non-interleaved mode:
-      All of the samples from one antenna are sequential in a block
-      Then the next antenna has its block, etc
-
-      The data is IMRE - two imaginary bytes first, then 2 real bytes
-
-      We want to compute the magnitude:
-      we will copy the imaginary bytes to one vector, square each element
-      copy real bytes to another vector, square each element
-      add the two vectors
-      square root them
-
-      We need to do an AB Sync EDMA transfer.
-    samplesPerChirp = dpParams->numAdcSamples * dpParams->numRxAntennas;
-
-    // Ping/Pong common configuration
-    syncABCfg.aCount = 2;                           // real or imaginary 16 bit value
-    syncABCfg.bCount = dpParams->numAdcSamples;
-    syncABCfg.cCount = dpParams->numRxAntennas;     // For our use case, should be 1
-    syncABCfg.srcBIdx = sizeof(cmplx16ImRe_t);      // Size of the data we're interested in and the two bytes we need to skip
-    syncABCfg.srcCIdx = dpParams->numAdcSamples * sizeof(cmplx16ImRe_t);
-    syncABCfg.dstBIdx = 2;                          // We're making the imaginary bytes contiguous and the real bytes contiguous
-    syncABCfg.dstCIdx = 0;                          // Don't care
-
-    // PING configuration - writing imaginary to L1
-    syncABCfg.srcAddress = (uint32_t)rangingObj->ADCdataBuf; // First imaginary sample
-    syncABCfg.destAddress = (uint32_t)rangingObj->adcDataIn;
-
-    retVal = DPEDMA_configSyncAB (
-                            hwRes->edmaCfg.edmaHandle,
-                            &hwRes->edmaCfg.dataInPing,
-                            NULL,  // no Chaining
-                            &syncABCfg,
-                            false,
-                            true,
-                            true,
-                            NULL,
-                            NULL
-                            );
-    if (retVal < 0)
-    {
-        goto exit;
-    }
-
-    // PONG configuration - writing real to L1
-    syncABCfg.srcAddress = (uint32_t)(rangingObj->ADCdataBuf + 2); // First real sample
-    syncABCfg.destAddress = (uint32_t)rangingObj->adcDataIn + dpParams->numAdcSamples*2;
-
-    retVal = DPEDMA_configSyncAB (
-                            hwRes->edmaCfg.edmaHandle,
-                            &hwRes->edmaCfg.dataInPong,
-                            NULL,  // no Chaining
-                            &syncABCfg,
-                            false,
-                            true,
-                            true,
-                            NULL,
-                            NULL
-                            );
-    if (retVal < 0)
-    {
-        goto exit;
-    }
-    */
-
-    /*
-     * Here is the old code which copies an antennas worth
-     * of continguous cmplx16ImRe_t samples into the data in buffer,
-     * rather than copying imaginary to a contiguous block and real to a
-     * contiguous block
-
-    // aCount: One antenna's worth
-    syncACfg.aCount = dpParams->numAdcSamples * sizeof(cmplx16ImRe_t);
-
-    // bCount: num antennas divided by 2 - half in ping, half in pong
-    syncACfg.bCount = MAX(dpParams->numRxAntennas / 2U, 1U) * dpParams->numChirpsPerChirpEvent;
-
-    // B index is 2x channel offset, so we get antenna zero and antenna 2 in ping, and antenna 1 and 3 in pong (for 4 antennas)
-    syncACfg.srcBIdx = rangingObj->rxChanOffset * 2U ;
-
-    // dstBidx is zero: the destination array is not changed between consecutive Sync A's
-    syncACfg.dstBIdx = 0U;
-
-    // PING configuration
-    syncACfg.srcAddress = (uint32_t)rangingObj->ADCdataBuf;
-    syncACfg.destAddress = (uint32_t)rangingObj->adcDataIn;
-    
-    retVal = DPEDMA_configSyncA_singleFrame_nonlib(
-                hwRes->edmaCfg.edmaHandle,
-                &hwRes->edmaCfg.dataInPing,
-                NULL,  // no Chaining
-                &syncACfg,
-                false,
-                true,
-                true,
-                NULL,
-                NULL);
-    if (retVal < 0)
-    {
-        goto exit;
-    }
-
-    // PONG src/dest address
-    syncACfg.srcAddress = (uint32_t)rangingObj->ADCdataBuf + rangingObj->rxChanOffset;
-    syncACfg.destAddress = (uint32_t)&rangingObj->adcDataIn[dpParams->numAdcSamples];
-
-    retVal = DPEDMA_configSyncA_singleFrame_nonlib(
-                hwRes->edmaCfg.edmaHandle,
-                &hwRes->edmaCfg.dataInPong,
-                NULL,  // no Chaining
-                &syncACfg,
-                false,
-                true,
-                true,
-                NULL,
-                NULL);
-    if (retVal < 0)
-    {
-        goto exit;
-    }
-    */
 exit:
     return(retVal);
 }
@@ -482,15 +360,8 @@ static int32_t rangingDSP_ConfigDataOutEDMA
 )
 {
     int32_t     retVal;
-//    uint16_t    samplesPerChirp;
-//    uint16_t     oneD_destinationCindex;
-//    uint8_t     *oneD_destinationPongAddress;
-//    DPEDMA_syncABCfg         syncABCfg;
     DPEDMA_syncACfg         syncACfg;
     ranging_dpParams      *dpParams;
-//    DPU_RangingDSP_EDMAConfig *edmaCfg;
-
-//    edmaCfg = &hwRes->edmaCfg;
     dpParams = &rangingObj->DPParams;
 
     /*****************************************************
@@ -539,58 +410,6 @@ static int32_t rangingDSP_ConfigDataOutEDMA
 
     exit:
         return(retVal);
-    /*
-
-    oneD_destinationCindex = samplesPerChirp * sizeof(cmplx16ImRe_t);;
-    oneD_destinationPongAddress = (uint8_t *)(&rangingObj->radarCubebuf[samplesPerChirp]);
-
-    // Ping/Pong common configuration
-    syncABCfg.aCount = dpParams->numAdcSamples * sizeof(cmplx16ImRe_t);
-    syncABCfg.bCount = dpParams->numRxAntennas;
-    syncABCfg.cCount = dpParams->numChirpsPerFrame / 2U; //bCount
-    syncABCfg.srcBIdx = dpParams->numAdcSamples * sizeof(cmplx16ImRe_t);
-    syncABCfg.srcCIdx = 0;
-    syncABCfg.dstBIdx = dpParams->numAdcSamples * sizeof(cmplx16ImRe_t);
-    syncABCfg.dstCIdx = oneD_destinationCindex;
-
-    // scratchBuffer is in L2. radarCubebuf is in L3
-    syncABCfg.srcAddress = (uint32_t)rangingObj->scratchBuffer;
-    syncABCfg.destAddress= (uint32_t)rangingObj->radarCubebuf;
-
-    // Ping - Copies from ping FFT output (even chirp indices)  to L3
-    retVal = DPEDMA_configSyncAB (edmaCfg->edmaHandle,
-                                 &edmaCfg->dataOutPing,
-                                 NULL,
-                                 &syncABCfg,
-                                 false,
-                                 true,
-                                 true,
-                                 NULL,
-                                 NULL
-                                 );
-    if (retVal < 0)
-    {
-        goto exit;
-    }
-
-    // Pong - copies from pong FFT output (odd chirp indices)  to L3
-    syncABCfg.srcAddress = (uint32_t)&rangingObj->scratchBuffer[samplesPerChirp];
-    syncABCfg.destAddress= (uint32_t)oneD_destinationPongAddress;
-
-    retVal = DPEDMA_configSyncAB (edmaCfg->edmaHandle,
-                                 &edmaCfg->dataOutPong,
-                                 NULL,
-                                 &syncABCfg,
-                                 false,
-                                 true,
-                                 true,
-                                 NULL,
-                                 NULL
-                                 );
-
-exit:
-    return(retVal);
-    */
 }
 
 /**
@@ -643,8 +462,8 @@ static int32_t rangingDSP_ParseConfig
     rangingObj->fftOfMagnitudeL3            = (cmplx16ImRe_t *)(((char *)rangingObj->magnitudeDataL3)       + pStaticCfg->ADCBufData.dataSize);     // Each value 2 bytes
     rangingObj->vectorMultiplyOfFFtedDataL3 = (cmplx32ImRe_t *)(((char *)rangingObj->fftOfMagnitudeL3)      + pStaticCfg->ADCBufData.dataSize);     // Each value 4 bytes, takes up twice as much room
     rangingObj->iFftDataL3                  = (cmplx32ImRe_t *)(((char *)rangingObj->vectorMultiplyOfFFtedDataL3)    + 2 * pStaticCfg->ADCBufData.dataSize); // Each value 4 bytes
-    rangingObj->magIfftDataL3               = (cmplx32ImRe_t *)(((char *)rangingObj->iFftDataL3)            + 2 * pStaticCfg->ADCBufData.dataSize); // Each value 4 bytes
-    rangingObj->fftGoldCodeL3_16kB          = (cmplx16ImRe_t *)(((char *)rangingObj->magIfftDataL3)         + 2 * pStaticCfg->ADCBufData.dataSize); // Each value 2 bytes
+    rangingObj->magIfftDataL3               = (uint32_t      *)(((char *)rangingObj->iFftDataL3)            + 2 * pStaticCfg->ADCBufData.dataSize);     // Each value 4 bytes, but only 1 value per sample
+    rangingObj->fftGoldCodeL3_16kB          = (cmplx16ImRe_t *)(((char *)rangingObj->magIfftDataL3)         + pStaticCfg->ADCBufData.dataSize); // Each value 2 bytes
     rangingObj->fftTwiddle16x16L3_16kB      = (cmplx16ImRe_t *)(((char *)rangingObj->fftGoldCodeL3_16kB)    + pStaticCfg->ADCBufData.dataSize);     // Each value 2 bytes
 
     /* Save Scratch buffers */
@@ -1079,6 +898,7 @@ int32_t DPU_RangingDSP_process
     EDMA_Handle         edmaHandle;
     volatile uint32_t   startTime;
     volatile uint32_t   startTime1;
+    volatile uint32_t   stopTime;
     uint32_t            waitingTime;
     uint32_t            outChannel;
     int32_t             retVal = 0;
@@ -1113,13 +933,17 @@ int32_t DPU_RangingDSP_process
     {
         uint32_t            dataInAddr;
         int16_t             *L1Buffer16kB;
-        int16_t             index_of_max    = -1;
-        uint32_t            max_value       = 0;
-        cmplx16ImRe_t *     scratchPageTwo_L2_16kB = rangingObj->scratchBufferTwoL2_32kB + DPParams->numAdcSamples;
+        uint16_t            index_of_max            = 0;
+        uint32_t            max_value               = 0;
+        uint16_t            num_line_fit_points     = 11;
+        cmplx16ImRe_t *     scratchPageTwo_L2_16kB  = rangingObj->scratchBufferTwoL2_32kB + DPParams->numAdcSamples;
+        cmplx32ImRe_t *     ifftBuffer              = (cmplx32ImRe_t *) rangingObj->scratchBufferOneL2_32kB;
+        uint32_t      *     ifftMagnitudeBuffer     = (uint32_t *)      rangingObj->scratchBufferTwoL2_32kB;
+        cmplx32ImRe_t *     vectorMultiplyBuffer    = (cmplx32ImRe_t *) rangingObj->scratchBufferTwoL2_32kB;
+        float temp_i;
+        float temp_q;
 
         edmaHandle = rangingObj->edmaHandle;
-
-        startTime = Cycleprofiler_getTimeStamp();
         waitingTime = 0;
 
         outParams->endOfChirp = false;
@@ -1144,13 +968,14 @@ int32_t DPU_RangingDSP_process
         EDMA_startDmaTransfer(edmaHandle, rangingObj->dataInChan[0]);
 
         // Verify if DMA has completed for current antenna
-        startTime1 = Cycleprofiler_getTimeStamp();
         rangingDSP_WaitEDMAComplete (  edmaHandle, rangingObj->dataInChan[0]);
         waitingTime += (Cycleprofiler_getTimeStamp() - startTime1);
 
         ////////////////////////////////////
         // Data Processing
         ////////////////////////////////////
+
+        startTime = Cycleprofiler_getTimeStamp();
 
         // Get the ADC data
         L1Buffer16kB = (int16_t *)&rangingObj->adcDataInL1_16kB[0];
@@ -1160,58 +985,71 @@ int32_t DPU_RangingDSP_process
         // 1. Magnitude Calculation
         //      Magnitude is stored in real channel (odd indices)
         //      Calculation performed in place
+        //      Very costly (1700us), can be optimized - look at mmwavelib_log2Abs16 for inspiration
+        //      Also see mmwavelib_power
         ////////////////////////////////////
+        startTime1 = Cycleprofiler_getTimeStamp();
         calcMagInt16(DPParams->numAdcSamples, L1Buffer16kB);
+        stopTime = Cycleprofiler_getTimeStamp();
+        outParams->stats.magAdcTime = stopTime - startTime1;
         memcpy(rangingObj->magnitudeDataL3, L1Buffer16kB, DPParams->numAdcSamples * sizeof(cmplx16ImRe_t));
 
         ////////////////////////////////////
         // 2. FFT
         //      Convert to frequency domain
+        //      Inefficient - rakes 45 us - only need half as many computations once optimized
         ////////////////////////////////////
 
         ////////////////////////////////////
         // 16bit FFT in imre format
         // Write to the second 16kB of the scratchbuffer so we can use it for the magnitude calculation
+        startTime1 = Cycleprofiler_getTimeStamp();
         DSP_fft16x16_imre(
                 (int16_t *) rangingObj->fftTwiddle16x16L2_16kB,     // Twiddle factors
                 DPParams->numAdcSamples,                            // number of complex samples
                 (int16_t *) L1Buffer16kB,                           // Input
                 (int16_t *) scratchPageTwo_L2_16kB );               // Output
+        stopTime = Cycleprofiler_getTimeStamp();
+        outParams->stats.fftTime = stopTime - startTime1;
         memcpy(rangingObj->fftOfMagnitudeL3, scratchPageTwo_L2_16kB, DPParams->numAdcSamples * sizeof(cmplx16ImRe_t));
 
         ////////////////////////////////////
         // 3. Vector Multiply
         //      Multiplication in the frequency domain is convolution in the time domain, but much more efficient
+        //      Inefficient - takes 200us - look at mmwavelib_vecmul16x16 for inspiration (should take ~10us)
         ////////////////////////////////////
         int32_t temp_one;
         int32_t temp_two;
         int32_t temp_three;
+        startTime1 = Cycleprofiler_getTimeStamp();
         for(index = 0; index < DPParams->numAdcSamples; index++)
         {
             // Real portion
             temp_one = ((int32_t) scratchPageTwo_L2_16kB[index].real);
             temp_two = ((int32_t) rangingObj->fftGoldCodeL2_16kB[index].real);
             temp_three = (temp_one * temp_two);
-            ((cmplx32ImRe_t *)rangingObj->scratchBufferTwoL2_32kB)[index].real = temp_three;
+            vectorMultiplyBuffer[index].real = temp_three;
 
             // Real times imaginary
             temp_one = ((int32_t) scratchPageTwo_L2_16kB[index].real);
             temp_two = ((int32_t) rangingObj->fftGoldCodeL2_16kB[index].imag);
             temp_three = (temp_one * temp_two);
-            ((cmplx32ImRe_t *)rangingObj->scratchBufferTwoL2_32kB)[index].imag = temp_three;
+            vectorMultiplyBuffer[index].imag = temp_three;
 
             temp_one = ((int32_t) scratchPageTwo_L2_16kB[index].imag);
             temp_two = ((int32_t) rangingObj->fftGoldCodeL2_16kB[index].real);
             temp_three = (temp_one * temp_two);
-            ((cmplx32ImRe_t *)rangingObj->scratchBufferTwoL2_32kB)[index].imag += temp_three;
+            vectorMultiplyBuffer[index].imag += temp_three;
 
             // Imaginary portion
             temp_one = ((int32_t) scratchPageTwo_L2_16kB[index].imag);
             temp_two = ((int32_t) rangingObj->fftGoldCodeL2_16kB[index].imag);
             temp_three = (temp_one * temp_two);
-            ((cmplx32ImRe_t *)rangingObj->scratchBufferTwoL2_32kB)[index].real -= temp_three;
+            vectorMultiplyBuffer[index].real -= temp_three;
         }
-        memcpy(rangingObj->vectorMultiplyOfFFtedDataL3, rangingObj->scratchBufferTwoL2_32kB, DPParams->numAdcSamples * sizeof(cmplx32ImRe_t));
+        stopTime = Cycleprofiler_getTimeStamp();
+        outParams->stats.vecmulTime = stopTime - startTime1;
+        memcpy(rangingObj->vectorMultiplyOfFFtedDataL3, vectorMultiplyBuffer, DPParams->numAdcSamples * sizeof(cmplx32ImRe_t));
 
         ///////////////////////////////////////////////////////////////////
         // 4. IFFT
@@ -1220,58 +1058,58 @@ int32_t DPU_RangingDSP_process
         //      This has no effect on magnitude which is the next step
         //      This overwrites the Complex Conjugate(FFT(Gold Code)) and FFT twiddle factors
         //      They need to be copied back from L3 later
+        //      Inefficient - takes 241 us - only need half as many computations once optimized
         ///////////////////////////////////////////////////////////////////
+        startTime1 = Cycleprofiler_getTimeStamp();
         DSP_ifft16x32(
                 (int16_t *) rangingObj->ifftTwiddle16x32L2_16kB,    // Twiddle factors (int16_t)
                 DPParams->numAdcSamples,                            // number of complex samples
-                (int32_t *) rangingObj->scratchBufferTwoL2_32kB,    // Input  (int32_t)
-                (int32_t *) rangingObj->scratchBufferOneL2_32kB );  // Output (int32_t)
-        memcpy(rangingObj->iFftDataL3, rangingObj->scratchBufferOneL2_32kB, DPParams->numAdcSamples * sizeof(cmplx32ImRe_t) );
+                (int32_t *) vectorMultiplyBuffer,                   // Input  (int32_t), scratch buffer two
+                (int32_t *) ifftBuffer );                           // Output (int32_t), scratch buffer one
+        stopTime = Cycleprofiler_getTimeStamp();
+        outParams->stats.ifftTime = stopTime - startTime1;
+        memcpy(rangingObj->iFftDataL3, ifftBuffer, DPParams->numAdcSamples * sizeof(cmplx32ImRe_t) );
 
 
         /////////////////////////////////////////////////////////////////////
         // 5.  Calculate magnitude and find the max
         //      The maximum value of the correlation peak shows where the code started
+        //      The IFFT buffer is reversed, so we reverse it here
         /////////////////////////////////////////////////////////////////////
-        float * temp_i = &((float *)rangingObj->scratchBufferTwoL2_32kB)[0];
-        float * temp_q = &((float *)rangingObj->scratchBufferTwoL2_32kB)[1];
-        index_of_max = -1;
+        startTime1 = Cycleprofiler_getTimeStamp();
+        uint32_t      reversed_index;
+        index_of_max = 0;
         max_value = 0;
-
-        cmplx32ImRe_t *bufferOne = (cmplx32ImRe_t *)rangingObj->scratchBufferOneL2_32kB;
         for(index = 0; index < DPParams->numAdcSamples; index++)
         {
             /////////////////////////////////////////////////////
             // Calculate magnitude
+            //      Very costly (1900us), can be optimized - look at mmwavelib_log2Abs16 for inspiration
+            //      Also see mmwavelib_power
             /////////////////////////////////////////////////////
             // Square
             // I sample
-            *temp_i = ((float)bufferOne[index].real) * ((float)bufferOne[index].real);
+            temp_i = ((float)ifftBuffer[index].real) * ((float)ifftBuffer[index].real);
 
             // Q sample
-            *temp_q = ((float)bufferOne[index].imag) * ((float)bufferOne[index].imag);
+            temp_q = ((float)ifftBuffer[index].imag) * ((float)ifftBuffer[index].imag);
 
             // sqrt(sum of I^2 + Q^2)
-            bufferOne[index].real = (int32_t)sqrt(*temp_i + *temp_q);
-
-            // Zero out the imaginary channel
-            bufferOne[index].imag = 0;
+            reversed_index = DPParams->numAdcSamples - index - 1;
+            ifftMagnitudeBuffer[reversed_index] = (uint32_t)sqrt(temp_i + temp_q);
 
             /////////////////////////////////////////////////////
             // Find the max
             /////////////////////////////////////////////////////
-            if( max_value < bufferOne[index].real)
+            if( max_value < ifftMagnitudeBuffer[reversed_index])
             {
-                max_value = bufferOne[index].real;
-                index_of_max = index;
-            }
-
-            if(index == 100)
-            {
-                max_value = bufferOne[index].real;
+                max_value = ifftMagnitudeBuffer[reversed_index];
+                index_of_max = reversed_index;
             }
         }
-        memcpy(rangingObj->magIfftDataL3, rangingObj->scratchBufferOneL2_32kB, DPParams->numAdcSamples * sizeof(cmplx32ImRe_t) );
+        stopTime = Cycleprofiler_getTimeStamp();
+        outParams->stats.magIfftTime = stopTime - startTime1;
+        memcpy(rangingObj->magIfftDataL3, ifftMagnitudeBuffer, DPParams->numAdcSamples * sizeof(uint32_t) );
         outParams->stats.promptValue = max_value;
         outParams->stats.promptIndex = index_of_max;
 
@@ -1280,8 +1118,8 @@ int32_t DPU_RangingDSP_process
         //      Determine if the peak corresponds to an actual code match by using a couple of threshold checks
         /////////////////////////////////////////////////////////////////////
         outParams->stats.eplOffset  = 14;
-        outParams->stats.earlyValue = ((cmplx32ImRe_t*)rangingObj->scratchBufferOneL2_32kB)[index_of_max - outParams->stats.eplOffset].real; // left side of the correlation peak, over halfway down
-        outParams->stats.lateValue  = ((cmplx32ImRe_t*)rangingObj->scratchBufferOneL2_32kB)[index_of_max + outParams->stats.eplOffset].real; // right side of the correlation peak, over halfway down
+        outParams->stats.earlyValue = ifftMagnitudeBuffer[index_of_max - outParams->stats.eplOffset]; // left side of the correlation peak, over halfway down
+        outParams->stats.lateValue  = ifftMagnitudeBuffer[index_of_max + outParams->stats.eplOffset]; // right side of the correlation peak, over halfway down
 
         if(     outParams->stats.earlyValue > outParams->stats.lateValue - outParams->stats.lateValue/10 &&
                 outParams->stats.earlyValue < outParams->stats.lateValue + outParams->stats.lateValue/10)
@@ -1289,27 +1127,74 @@ int32_t DPU_RangingDSP_process
             if(     max_value > 2*outParams->stats.earlyValue &&
                     max_value > 2*outParams->stats.lateValue )
             {
-                // Peak detected!
-                outParams->stats.wasCodeDetected = 1;
+                // Potential peak detected
 
                 //////////////////////////////////////////
                 // 6a. Coarse peak time
                 //      Offset with respect to the first ADC sample in nanoseconds
                 //////////////////////////////////////////
-                float f_index_of_max = (float)index_of_max;                             // range of zero to 4095
-                float f_adcSampleRate = (float)rangingObj->DPParams.adcSampleRate;      // 4000000
-                float f_secondsOffset = f_index_of_max/f_adcSampleRate;                 // range of zero to 0.00102375 in steps of 1/adcSampleRate
+                float f_index_of_max = (float)(index_of_max);                       // range of zero to 4095
+                float f_adcSampleRate = (float)rangingObj->DPParams.adcSampleRate;  // 4000000
+                float f_secondsOffset = f_index_of_max/f_adcSampleRate;             // range of zero to 0.00102375 in steps of 1/adcSampleRate
 
                 // Convert to DSP CPU cycles (600000000 cycles per second (600 MHz))
-                outParams->stats.coarsePeakTimeOffsetCycles = ((uint32_t)(f_secondsOffset*600000000)); // range of zero to 1023750
+                outParams->stats.coarsePeakTimeOffsetCycles = ((uint32_t)(f_secondsOffset*DSP_CLOCK_MHZ*1e6)); // range of zero to 1023750
 
 
                 //////////////////////////////////////////
                 // 6b. Fine peak detection
                 //      Offset with respect to the coarse peak time
                 //////////////////////////////////////////
+                float left_slope, left_intercept;
+                float right_slope, right_intercept;
+
+                left_slope = ((float)(  ifftMagnitudeBuffer[index_of_max - outParams->stats.eplOffset + 5] -
+                                        ifftMagnitudeBuffer[index_of_max - outParams->stats.eplOffset - 5] )) / (11.0f);
+                left_intercept = ((float)ifftMagnitudeBuffer[index_of_max]) - left_slope*f_index_of_max;
+
+
+                right_slope = ((float)( ifftMagnitudeBuffer[index_of_max + outParams->stats.eplOffset + 5] -
+                                        ifftMagnitudeBuffer[index_of_max + outParams->stats.eplOffset - 5] )) / (11.0f);
+                right_intercept = ((float)ifftMagnitudeBuffer[index_of_max]) - right_slope*f_index_of_max;
+
+                /*
+                temp_one = outParams->stats.eplOffset + num_line_fit_points/2;
+                temp_two = outParams->stats.eplOffset - num_line_fit_points/2;
+                for(index = 0; index < num_line_fit_points; index++)
+                {
+                    ((uint32_t *)rangingObj->scratchBufferTwoL2_32kB)[index] = (uint32_t)(index_of_max - temp_one + index);
+                    ((uint32_t *)rangingObj->scratchBufferTwoL2_32kB)[num_line_fit_points + index] = (uint32_t)(index_of_max + temp_two + index);
+                }
+
+                line_fit(
+                        num_line_fit_points,
+                        ((uint32_t *)rangingObj->scratchBufferTwoL2_32kB),
+                        &bufferTwo[index_of_max - temp_one],
+                        &left_slope,
+                        &left_intercept);
+
+                line_fit(
+                        num_line_fit_points,
+                        ((uint32_t *)rangingObj->scratchBufferTwoL2_32kB) + num_line_fit_points,
+                        &bufferTwo[index_of_max + temp_two],
+                        &right_slope,
+                        &right_intercept);
+                        */
+
+                // a slope of 300 means half the points are in the frame
+                if( left_slope > 300 &&
+                    left_slope > -1*right_slope - left_slope/10 &&
+                    left_slope < -1*right_slope + left_slope/10 )
+                {
+                    outParams->stats.wasCodeDetected = 1;
+                    float peak_index_fine = ((float) DPParams->numAdcSamples) - (right_intercept - left_intercept)/(left_slope - right_slope);
+                    float f_secondsOffsetFine = peak_index_fine/f_adcSampleRate;
+                    outParams->stats.RefinedPeakTimePicoseconds = (int32_t)((f_secondsOffsetFine - f_secondsOffset)*1e12);
+                }
             }
         }
+
+        stopTime = Cycleprofiler_getTimeStamp();
 
         // Reset the gold code and FFT twiddle - in the future this could be triggered by a framestart interrupt
         memcpy(rangingObj->fftGoldCodeL2_16kB,
@@ -1357,182 +1242,13 @@ int32_t DPU_RangingDSP_process
     }
 
     /* Update outParams */
-    outParams->stats.processingTime = Cycleprofiler_getTimeStamp() - startTime - waitingTime;
+    outParams->stats.processingTime = stopTime - startTime;
     outParams->stats.waitTime = waitingTime;
 
     rangingObj->inProgress = false;
 
 exit:
     return retVal;
-
-    /* 
-    // Process chirp data per loop, loops for numChirpsPerChirpEvent
-    // for (chirpIndex = 0; chirpIndex < DPParams->numChirpsPerChirpEvent; chirpIndex++)
-    {
-        uint32_t    dataInAddr[2];
-        uint32_t    numAdcSampleAligned;
-        cmplx16ImRe_t *adcBufPongOffset;
-
-        // *********************************
-        // * Prepare for the FFT
-        // ********************************
-        numAdcSampleAligned = (DPParams->numAdcSamples + 3U)/4U * 4U;
-        adcBufPongOffset = (cmplx16ImRe_t *)((uint32_t)rangingObj->ADCdataBuf + rangingObj->rxChanOffset);
-
-        dataInAddr[0] = (uint32_t)&rangingObj->ADCdataBuf[chirpIndex * numAdcSampleAligned];
-        dataInAddr[1] = (uint32_t)&adcBufPongOffset[chirpIndex * numAdcSampleAligned];
-
-        // Set Ping source Address
-        // rangingObj->dataInChan maps to either:
-        // DPC_RANGING_DSP_DPU_EDMAIN_PING_CH  for rangingObj->dataInChan[0]
-        // DPC_RANGING_DSP_DPU_EDMAIN_PONG_CH  for rangingObj->dataInChan[1]
-        // rangingObj->dataInChan is used in this function to tell if we're doing something with PING or PONG
-        retVal = EDMA_setSourceAddress(
-                edmaHandle,
-                rangingObj->dataInChan[0],
-            (uint32_t) SOC_translateAddress(dataInAddr[0], SOC_TranslateAddr_Dir_TO_EDMA, NULL));
-        if (retVal != 0)
-        {
-            goto exit;
-        }
-
-        // Set Pong source Address
-        retVal = EDMA_setSourceAddress(
-                edmaHandle,
-                rangingObj->dataInChan[1],
-            (uint32_t) SOC_translateAddress(dataInAddr[1], SOC_TranslateAddr_Dir_TO_EDMA, NULL));
-        if (retVal != 0)
-        {
-            goto exit;
-        }
-
-        // Kick off DMA to fetch data from ADC buffer for first channel
-        // This is PING. This is the first A Sync transfer so it starts at the start of the
-        // ADC memory buffer - where antenna zero records.
-        // It transfers numAdcSamples to the destination buffer
-        // Successive A Sync events on the same channel increment the source address by srcBIdx = 2 * numAdcSamples
-        // So the first PING transfer is antenna zero from location     ADCBUF + 0                  (set in rangingDSP_ConfigDataInEDMA)
-        // The first PONG transfer is antenna one from location         ADCBUF + numAdcSamples      (set in rangingDSP_ConfigDataInEDMA)
-        // The second  PING transfer is antenna two from location       ADCBUF + 2*numAdcSamples    (set in rangingDSP_ConfigDataInEDMA (base address + srcBIdx))
-        // The second  PONG transfer is antenna three from location     ADCBUF + 3*numAdcSamples    (set in rangingDSP_ConfigDataInEDMA (base address + srcBIdx))
-        EDMA_startDmaTransfer(edmaHandle, rangingObj->dataInChan[0]);
-
-        // If x is even pingPongId(x) returns 0.
-        // If x is odd pingPongId(x) returns 1.
-        chirpPingPongId = pingPongId(rangingObj->chirpCount);
-
-        // 1d fft for first antenna, followed by kicking off the DMA of fft output
-        for (rxChanId = 0; rxChanId < DPParams->numRxAntennas; rxChanId++)
-        {
-            int16_t     *imagSrcAddr;
-            int16_t     *realSrcAddr;
-            int16_t     *fftDestAddr;
-            uint8_t     inChannel;
-
-            // ********************************
-             //  Data Input
-             // ********************************
-            // Either DPC_RANGING_DSP_DPU_EDMAIN_PING_CH or DPC_RANGING_DSP_DPU_EDMAIN_PONG_CH
-            inChannel = rangingObj->dataInChan[pingPongId(rxChanId)];
-
-            if(rxChanId < DPParams->numRxAntennas - 1U)
-            {
-                // Kick off DMA to fetch data from ADC buffer for the next channel
-                EDMA_startDmaTransfer(edmaHandle, rangingObj->dataInChan[pingPongId(rxChanId + 1)]);
-            }
-
-            // Verify if DMA has completed for current antenna
-            startTime1 = Cycleprofiler_getTimeStamp();
-            rangingDSP_WaitEDMAComplete (  edmaHandle, inChannel);
-            waitingTime += (Cycleprofiler_getTimeStamp() - startTime1);
-
-            // ********************************
-            // Data Processing
-            // ********************************
-
-            // Get the src/dest Address for FFT operation
-            imagSrcAddr = (int16_t*)&rangingObj->adcDataIn[0];
-            realSrcAddr = (int16_t*)&rangingObj->adcDataIn[0];
-           fftDestAddr = (int16_t*)&rangingObj->fftOut1D[chirpPingPongId * DPParams->numAdcSamples * DPParams->numRxAntennas +
-                                                      (DPParams->numAdcSamples * rxChanId)];
-
-            ////////////////////////////////////
-            // 1. Magnitude Calculation
-            ////////////////////////////////////
-
-            ////////////////////////////////////
-            // 2. FFT
-            ////////////////////////////////////
-
-            // 16bit FFT in imre format
-            //DSP_fft16x16
-            DSP_fft16x16_imre(
-                    (int16_t *) rangingObj->twiddle16x16,
-                    DPParams->numAdcSamples,
-                    (int16_t *)fftSrcAddr,
-                    (int16_t *) fftDestAddr);
-
-
-            ////////////////////////////////////
-            // 3. Vector Multiply
-            ////////////////////////////////////
-
-            ////////////////////////////////////
-            // 3. IFFT
-            ////////////////////////////////////
-
-            ////////////////////////////////////
-            // 5.  Find Max
-            ////////////////////////////////////
-
-            // DSPF_sp_maxidx
-
-        }
-
-        // ********************************
-        // * Data Output
-        //  ********************************
-        outChannel = rangingObj->dataOutChan[chirpPingPongId];
-
-        uint32_t    radarCubeAddr;
-
-        radarCubeAddr = (uint32_t)(rangingObj->radarCubebuf + rangingObj->chirpCount * rangingObj->numSamplePerChirp);
-        EDMA_setDestinationAddress(edmaHandle, outChannel,
-            (uint32_t)SOC_translateAddress((radarCubeAddr), SOC_TranslateAddr_Dir_TO_EDMA, NULL));
-
-        if(rangingObj->chirpCount > 1U)
-        {
-            startTime1 = Cycleprofiler_getTimeStamp();
-            rangingDSP_WaitEDMAComplete (  edmaHandle, outChannel);
-            waitingTime += (Cycleprofiler_getTimeStamp() - startTime1);
-        }
-
-        EDMA_startDmaTransfer(edmaHandle, outChannel);
-
-        // Increment chirp count
-        rangingObj->chirpCount++;
-
-        // Last chirp , wait until EDMA is completed
-        if(rangingObj->chirpCount == DPParams->numChirpsPerFrame)
-        {
-            // Wait until last tansfer is done
-            rangingDSP_WaitEDMAComplete (  edmaHandle, outChannel);
-            rangingObj->chirpCount = 0;
-            outParams->endOfChirp = true;
-        }
-
-        rangingObj->numProcess++;
-    }
-
-    // Update outParams
-    outParams->stats.processingTime = Cycleprofiler_getTimeStamp() - startTime - waitingTime;
-    outParams->stats.waitTime = waitingTime;
-
-    rangingObj->inProgress = false;
-
-exit:
-    return retVal;
-    */
 }
 
 /**

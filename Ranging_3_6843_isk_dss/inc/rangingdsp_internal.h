@@ -140,7 +140,7 @@ typedef struct rangingDSPObj_t
     cmplx32ImRe_t           *iFftDataL3;
 
     /*! @brief      Mag( IFFT ( FFT(magnitude data) * ( Complex Conjugate( FFT(Gold Code)))))*/
-    cmplx32ImRe_t           *magIfftDataL3;
+    uint32_t                *magIfftDataL3;
 
     /*! @brief      L3 storage for the complex conjugate of the FFT of the gold code*/
     cmplx16ImRe_t           *fftGoldCodeL3_16kB;

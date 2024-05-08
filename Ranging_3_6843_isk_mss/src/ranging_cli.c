@@ -64,6 +64,7 @@
 #include <inc/ranging_mss.h>
 #include <inc/ranging_adcconfig.h>
 #include <inc/ranging_rfparser.h>
+#include <inc/gold_code.h>
 
 #ifdef SYS_COMMON_XWR68XX_LOW_POWER_MODE_EN
 /* Low Power Library Functions*/
@@ -85,6 +86,7 @@ static int32_t Ranging_CLIChirpQualitySigImgMonCfg (int32_t argc, char* argv[]);
 static int32_t Ranging_CLIAnalogMonitorCfg (int32_t argc, char* argv[]);
 static int32_t Ranging_CLILvdsStreamCfg (int32_t argc, char* argv[]);
 static int32_t Ranging_CLIConfigDataPort (int32_t argc, char* argv[]);
+static int32_t Ranging_CLICalibDataSaveRestore(int32_t argc, char* argv[]);
 
 #ifdef SYS_COMMON_XWR68XX_LOW_POWER_MODE_EN
 static int32_t Ranging_CLIIdleModeCycle (int32_t argc, char* argv[]);
@@ -105,6 +107,8 @@ extern void idle_power_cycle(IdleModeCfg   idleModeCfg);
  *************************** Local Definitions ****************************
  **************************************************************************/
 #define MMWDEMO_DATAUART_MAX_BAUDRATE_SUPPORTED 3125000
+#define RECEIVE_PROFILE_NUMBER 0
+#define TRANSMIT_PROFILE_NUMBER 1
 
 /**************************************************************************
  *************************** CLI  Function Definitions **************************
@@ -320,6 +324,492 @@ static int32_t Ranging_CLISensorStart (int32_t argc, char* argv[])
      * Set the state
      ***********************************************************************************/
     gMmwMssMCB.sensorState = Ranging_SensorState_STARTED;
+    return 0;
+}
+
+int32_t Ranging_SetBaseConfiguration(float frequencyInGhz)
+{
+    // Set up a static argv large enough for the maximum expected arguments
+    char* argv[15];
+    int32_t argc;
+    int32_t                 errCode;
+
+    if (gMmwMssMCB.sensorState == Ranging_SensorState_STARTED)
+    {
+        CLI_write ("Ignored: This command is not allowed after sensor has started\n");
+        return 0;
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // flushCfg
+    //  CLI_MMWaveFlushCfg(argc, argv );
+
+    /* Flush the configuration in the MMWave */
+    if (MMWave_flushCfg (gMmwMssMCB.ctrlHandle, &errCode) < 0)
+    {
+        /* Error: Flushing the configuration failed. Return the error code back to the callee */
+        return errCode;
+    }
+
+    /* Reset the global configuration: */
+    memset ((void*)&gMmwMssMCB.cfg.ctrlCfg, 0, sizeof(MMWave_CtrlCfg));
+
+    /* Reset the open configuration: */
+    memset ((void*)&gMmwMssMCB.cfg.openCfg, 0, sizeof(MMWave_OpenCfg));
+
+    ////////////////////////////////////////////////////////////////////////////
+    //  CLI_MMWaveDataOutputMode
+    // Options are frame, continuous, and advanced
+    // argc = 2;
+    // argv[0] = "dfeDataOutputMode";
+    // argv[1] = "1";                          // MMWave_DFEDataOutputMode_FRAME
+    // CLI_MMWaveDataOutputMode(argc, argv);
+    gMmwMssMCB.cfg.ctrlCfg.dfeDataOutputMode = MMWave_DFEDataOutputMode_FRAME;
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Antenna Configuration
+    //<rxChannelEn>          4       b0 RX0 Channel Enable, b1 RX1 Channel Enable, b2 RX2 Channel Enable, b3 RX3 Channel Enable, b15:4 - RESERVED
+    //<txChannelEn>          1       b0 TX0 Channel Enable, b1 TX1 Channel Enable, b2 TX2 Channel Enable, b15:3 - RESERVED \n
+    //<cascading>            0       0x0000 SINGLECHIP, 0x0001 MULTICHIP_MASTER, 0x0002 MULTICHIP_SLAVE
+
+    /* Initialize the channel configuration: */
+    memset ((void *)&gMmwMssMCB.cfg.openCfg.chCfg, 0, sizeof(rlChanCfg_t));
+    gMmwMssMCB.cfg.openCfg.chCfg.rxChannelEn = 4;  // RX2 Channel Enable
+    gMmwMssMCB.cfg.openCfg.chCfg.txChannelEn = 1;  // TX0 Channel Enable (however, we never transmit in RX mode.)
+    gMmwMssMCB.cfg.openCfg.chCfg.cascading   = 0;  // cascading is off
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // ADC Config           adcCfg 2 1
+    //<numADCBits>           2       ADC out bits - 0(12 Bits), 1(14 Bits), 2(16 Bits)
+    //<adcOutputFmt>         1       ADC out format- 0(Real), 1(Complex), 2(Complex with Image band), 3(Pseudo Real)
+    memset ((void *)&gMmwMssMCB.cfg.openCfg.adcOutCfg, 0, sizeof(rlAdcOutCfg_t));
+    gMmwMssMCB.cfg.openCfg.adcOutCfg.fmt.b2AdcBits   = 2;              // 16 output bits
+    gMmwMssMCB.cfg.openCfg.adcOutCfg.fmt.b2AdcOutFmt = 1;              // Complex output
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // ADC Config           adcbufCfg -1 0 1 1 1
+    //<subFrameIdx>          -1
+    //<adcOutputFmt>         0       0-Complex, 1-Real
+    //<SampleSwap>           1       0-I in LSB, Q in MSB, 1-Q in LSB, I in MSB
+    //<ChanInterleave>       1       0-interleaved(not supported on XWR16xx), 1- non-interleaved
+    //<ChirpThreshold>       1       Chirp Threshold configuration used for ADCBUF buffer
+    argc = 3;
+    argv[0] = "adcbufCfg";
+    argv[1] = "-1";             // subFrameIndex
+    argv[2] = "0";              // Real
+    argv[3] = "1";              // Q in LSB, I in MSB
+    argv[4] = "1";              // non-interleaved
+    argv[5] = "1";              // Chirp Threshold configuration used for ADCBUF buffer
+    Ranging_CLIADCBufCfg(argc, argv);
+
+    //////////////////////////////////////////////////////////////////////////////////////////
+    // Bit Phase Modulation     bpmCfg -1 0 0 0
+    //<chirpStartIdx>        0       % Chirp Start Index, Valid Range 0 -511
+    //<chirpEndIdx>          0       % Chirp End Index, Valid Range chirpStartIdx -511
+    //<constBpmVal>          0       % 0 for zero phase, 1 for 180 phase
+    //bpmCfgAdvanced
+    argc = 5;
+    argv[0] = "bpmCfg";
+    argv[1] = "-1";          // chirpStartIdx
+    argv[2] = "0";          // chirpEndIdx
+    argv[3] = "0";          // numLoops
+    argv[4] = "0";          // numFrames
+    Ranging_CLIBpmCfg(argc, argv);
+
+    //////////////////////////////////////////////////////////////////////////////////////////
+    // Low Power Configuration     lowPower 0 0
+
+    /* Initialize the channel configuration: */
+    memset ((void *)&gMmwMssMCB.cfg.openCfg.lowPowerMode, 0, sizeof(rlLowPowerModeCfg_t));
+
+    /* Populate the channel configuration: */
+    gMmwMssMCB.cfg.openCfg.lowPowerMode.lpAdcMode     = atoi (argv[2]);
+
+    //////////////////////////////////////////////////////////////////////////////////////////
+    // GUI Monitor     guiMonitor -1 1 1 0 0 0 1
+    //guiMonSel.detectedObjects           = atoi (argv[2]);
+    //guiMonSel.logMagRange               = atoi (argv[3]);
+    //guiMonSel.noiseProfile              = atoi (argv[4]);
+    //guiMonSel.rangeAzimuthHeatMap       = atoi (argv[5]);
+    //guiMonSel.rangeDopplerHeatMap       = atoi (argv[6]);
+    //guiMonSel.statsInfo                 = atoi (argv[7]);
+    argc = 8;
+    argv[0] = "guiMonitor";
+    argv[1] = "-1";         // frameId
+    argv[2] = "1";          // detectedObjects
+    argv[3] = "1";          // logMagRange
+    argv[4] = "0";          // noiseProfile
+    argv[5] = "0";          // rangeAzimuthHeatMap
+    argv[6] = "0";          // rangeDopplerHeatMap
+    argv[7] = "1";          // statsInfo
+    Ranging_CLIGuiMonSel(argc, argv);
+
+    ////////////////////////////////////////////////////////////////////////////////////////
+    // LVDS config    lvdsStreamCfg -1 0 1 0
+    //<subFrameIdx>
+    //<enableHeader>
+    //<dataFmt>
+    //<enableSW>
+    argc = 5;
+    argv[0] = "lvdsStreamCfg";
+    argv[1] = "-1";         // subFrameIdx
+    argv[2] = "0";          // enableHeader
+    argv[3] = "1";          // dataFmt
+    argv[4] = "0";          // enableSW
+    Ranging_CLILvdsStreamCfg(argc, argv);
+
+    ////////////////////////////////////////////////////////////////////////////////////////
+    // Chirp Quality Saturation Monitor    CQRxSatMonitor 0 3 5 121 0
+    //<profile>
+    //<satMonSel>
+    //<priSliceDuration>
+    //<numSlices>
+    //<rxChanMask>
+    argc = 6;
+    argv[0] = "CQRxSatMonitor";
+    argv[1] = "0";          // profile
+    argv[2] = "3";          // satMonSel
+    argv[3] = "5";          // priSliceDuration
+    argv[4] = "121";        // numSlices
+    argv[5] = "0";          // rxChanMask
+    Ranging_CLIChirpQualityRxSatMonCfg(argc, argv);
+
+    ////////////////////////////////////////////////////////////////////////////////////////
+    // Chirp Quality SigImg Monitor   CQSigImgMonitor 0 127 4
+    //<profile>
+    //<numSlices>
+    //<numSamplePerSlice>
+    argc = 4;
+    argv[0] = "CQSigImgMonitor";
+    argv[1] = "0";          // profile
+    argv[2] = "127";        // numSlices
+    argv[3] = "4";          // numSamplePerSlice
+    Ranging_CLIChirpQualitySigImgMonCfg(argc, argv);
+
+    ////////////////////////////////////////////////////////////////////////////////////////
+    // Analog Monitor   analogMonitor 0 0
+    //<rxSaturation>
+    //<sigImgBand>
+    argc = 3;
+    argv[0] = "analogMonitor";
+    argv[1] = "0";          // rxSaturation
+    argv[2] = "0";          // sigImgBand
+    Ranging_CLIAnalogMonitorCfg(argc, argv);
+
+
+    ////////////////////////////////////////////////////////////////////////////////////////
+    // Calibration Data   calibData 0 0 0
+    //<save enable>
+    //<restore enable>
+    //<Flash offset>
+    argc = 4;
+    argv[0] = "calibData";
+    argv[1] = "0";          // save enable
+    argv[2] = "0";          // restore enable
+    argv[3] = "0";          // restore enable
+    Ranging_CLICalibDataSaveRestore(argc, argv);
+
+    return 0;
+}
+
+int32_t Ranging_SetReceiveConfiguration(float frequencyInGhz)
+{
+    rlProfileCfg_t          profileCfg;
+    int32_t                 errCode;
+    MMWave_ProfileHandle    profileHandle;
+    MMWave_ProfileHandle*   ptrBaseCfgProfileHandle;
+    rlChirpCfg_t            chirpCfg;
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Profile Config Zero          profileCfg 0 63.95 3 5 1280 0 0 0 0 4096 4000 0 0 158
+
+    /* Initialize the profile configuration: */
+    memset ((void *)&profileCfg, 0, sizeof(rlProfileCfg_t));
+    if (gMmwMssMCB.cfg.ctrlCfg.dfeDataOutputMode == MMWave_DFEDataOutputMode_FRAME)
+    {
+        ptrBaseCfgProfileHandle = &gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.profileHandle[0U];
+    }
+    else
+    {
+        ptrBaseCfgProfileHandle = &gMmwMssMCB.cfg.ctrlCfg.u.advancedFrameCfg.profileHandle[0U];
+    }
+
+    if(ptrBaseCfgProfileHandle[RECEIVE_PROFILE_NUMBER] != NULL)
+    {
+        System_printf("Error: Receive profile already set.\n");
+        Ranging_debugAssert (0);
+    }
+
+    /* Populate the profile configuration: */
+    profileCfg.profileId             = RECEIVE_PROFILE_NUMBER;
+
+    /* Translate from GHz to [1 LSB = gCLI_mmwave_freq_scale_factor * 1e9 / 2^26 Hz] units
+     * of mmwavelink format */
+    profileCfg.startFreqConst        = (uint32_t) (frequencyInGhz * (1U << 26) / gMmwMssMCB.rfFreqScaleFactor);
+
+    /* Translate below times from us to [1 LSB = 10 ns] units of mmwavelink format */
+    profileCfg.idleTimeConst         = (uint32_t)((float)3 * 1000 / 10);    // 3 us idle time
+    profileCfg.adcStartTimeConst     = (uint32_t)((float)5 * 1000 / 10);    // 5 us ADC wait time
+    profileCfg.rampEndTime           = (uint32_t)((float)1280 * 1000 / 10); // 1280 us ramp time
+    profileCfg.txOutPowerBackoffCode = 0;                                   // 0 dB Tx decrease
+    profileCfg.txPhaseShifter        = 0;                                   // no phase shift
+    profileCfg.freqSlopeConst        = 0;                                   // No slope
+    profileCfg.txStartTime           = (int32_t)((float)0 * 1000 / 10);     // 10's of ns
+    profileCfg.numAdcSamples         = 4096;                                // 1024 us @ 4 MSPS
+    profileCfg.digOutSampleRate      = 4000;                                // KSPS
+    profileCfg.hpfCornerFreq1        = 0;                                   // 175 kHz - hpfCornerFreq1
+    profileCfg.hpfCornerFreq2        = 0;                                   // 350 kHz - hpfCornerFreq2
+    profileCfg.rxGain                = 158;                                 // 36 dB Rx Gain
+
+    /* Add the profile to the mmWave module: */
+    profileHandle = MMWave_addProfile (gMmwMssMCB.ctrlHandle, &profileCfg, &errCode);
+    if (profileHandle == NULL)
+    {
+        /* Error: Unable to add the profile. Return the error code back */
+        return errCode;
+    }
+
+    /* Record the profile: */
+    ptrBaseCfgProfileHandle[RECEIVE_PROFILE_NUMBER] = profileHandle;
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // chirpCfg           chirpCfg 0 0 0 0 0 0 0 0
+    //<startIdx>
+    //<endIdx>
+    //<profileId>
+    //<startFreqVar>         0       % Hz
+    //<freqSlopeVar>         0       % KHz/us
+    //<idleTimeVar>          0       % microseconds
+    //<adcStartTimeVar>      0       % microseconds
+    //<txEnable>             1       % b0 Enable TX0, b1 Enable TX1, b2 Enable TX2
+
+    /* Initialize the chirp configuration: */
+    memset ((void *)&chirpCfg, 0, sizeof(rlChirpCfg_t));
+
+    /* Populate the chirp configuration: */
+    chirpCfg.chirpStartIdx   = 0;   // The receive chirp is chirp zero
+    chirpCfg.chirpEndIdx     = 0;
+    chirpCfg.profileId       = RECEIVE_PROFILE_NUMBER;
+
+    /* Translate from Hz to number of [1 LSB = (gCLI_mmwave_freq_scale_factor * 1e9) / 2^26 Hz]
+     * units of mmwavelink format */
+    chirpCfg.startFreqVar    = (uint32_t) ((float)0 * (1U << 26) /
+                                            (gMmwMssMCB.rfFreqScaleFactor * 1e9));
+
+    /* Translate from KHz/us to number of [1 LSB = (gCLI_mmwave_freq_scale_factor * 1e6) * 900 /2^26 KHz/us]
+     * units of mmwavelink format */
+    chirpCfg.freqSlopeVar    = (uint16_t) ((float)0 * (1U << 26) /
+                                           ((gMmwMssMCB.rfFreqScaleFactor * 1e6) * 900.0));
+
+    /* Translate from us to [1 LSB = 10ns] units of mmwavelink format */
+    chirpCfg.idleTimeVar     = (uint32_t)((float)0 * 1000.0 / 10.0);
+
+    /* Translate from us to [1 LSB = 10ns] units of mmwavelink format */
+    chirpCfg.adcStartTimeVar = (uint32_t)((float)0 * 1000.0 / 10.0);
+
+    chirpCfg.txEnable        = 0;
+
+    /* Add the chirp to the profile */
+    if (MMWave_addChirp (profileHandle, &chirpCfg, &errCode) == NULL)
+    {
+        /* Error: Unable to add the chirp. Return the error code. */
+        return errCode;
+    }
+
+    // Ready for sensorStart
+    return 0;
+}
+
+int32_t Ranging_ActivateReceiveConfiguration(float frequencyInGhz)
+{
+
+    /////////////////////////////////////////////////////////////////////////////////////////
+    // Frame configuration      frameCfg 0 0 1 0 10 1 0
+    //<chirpStartIdx>        0       % Start Index of Chirp Valid range = 0-511
+    //<chirpEndIdx>          0       % End Index of Chirp Valid range = chirpStartIdx-511
+    //<numLoops>             0       % Number of times to repeat from chirpStartIdx to chirpStartIdx in each frame, valid range = 1 to 255 \n
+    //<numFrames>            0       % Number of frame to transmit Valid Range 0 to 65535 (0 for infinite frames) \n
+    //<framePeriodicity>     0       % Frame repetition period milliseconds
+    //<triggerSelect>        0       % 0x0001 SWTRIGGER (Software API based triggering), 0x0002 HWTRIGGER (Hardware SYNC_IN based triggering)
+    //<frameTriggerDelay>
+
+    /* Initialize the frame configuration: */
+    memset ((void *)&gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg, 0, sizeof(rlFrameCfg_t));
+
+    /* Populate the frame configuration: */
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpStartIdx      = 0;          // chirpStartIdx
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpEndIdx        = 0;          // chirpEndIdx
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numLoops           = 1;          // numLoops
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numFrames          = 0;          // numFrames
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.framePeriodicity   = (uint32_t)((float)10 * 1000000 / 5);  // framePeriodicity
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.triggerSelect      = 1;                                    // triggerSelect
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.frameTriggerDelay  = (uint32_t)((float)0 * 1000000 / 5);   // frameTriggerDelay
+
+    // Ready for sensorStart
+    return 0;
+}
+
+
+int32_t Ranging_SetTransmitConfiguration(float frequencyInGhz, uint8_t numGoldCodeBits, uint16_t goldCodePrn)
+{
+    rlProfileCfg_t          profileCfg;
+    int32_t                 errCode;
+    MMWave_ProfileHandle    profileHandle;
+    MMWave_ProfileHandle*   ptrBaseCfgProfileHandle;
+    rlChirpCfg_t            chirpCfg;
+    gold_code_struct_t      goldCode;
+    uint16_t                index;
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Profile Config Zero          profileCfg 0 63.9494 3 0 6 0 0 0 0 64 12500 0 0 158
+
+    if (gMmwMssMCB.cfg.ctrlCfg.dfeDataOutputMode == MMWave_DFEDataOutputMode_FRAME)
+    {
+        ptrBaseCfgProfileHandle = &gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.profileHandle[0U];
+    }
+    else
+    {
+        ptrBaseCfgProfileHandle = &gMmwMssMCB.cfg.ctrlCfg.u.advancedFrameCfg.profileHandle[0U];
+    }
+
+    // Check to see if a transmit profile is already there
+    if(ptrBaseCfgProfileHandle[TRANSMIT_PROFILE_NUMBER] != NULL)
+    {
+        // Delete the profile
+        // This also deletes all chirps associated with the profile
+        if (MMWave_delProfile (gMmwMssMCB.ctrlHandle, ptrBaseCfgProfileHandle[TRANSMIT_PROFILE_NUMBER], &errCode))
+        {
+            /* Error: Unable to add the profile. Return the error code back */
+            return errCode;
+        }
+    }
+
+    /* Initialize the profile configuration: */
+    memset ((void *)&profileCfg, 0, sizeof(rlProfileCfg_t));
+
+    /* Populate the profile configuration: */
+    profileCfg.profileId             = TRANSMIT_PROFILE_NUMBER;
+
+    /* Translate from GHz to [1 LSB = gCLI_mmwave_freq_scale_factor * 1e9 / 2^26 Hz] units
+     * of mmwavelink format */
+    profileCfg.startFreqConst        = (uint32_t) (frequencyInGhz * (1U << 26) / gMmwMssMCB.rfFreqScaleFactor);
+
+    /* Translate below times from us to [1 LSB = 10 ns] units of mmwavelink format */
+    profileCfg.idleTimeConst         = (uint32_t)((float)3 * 1000 / 10);    // 3 us idle time
+    profileCfg.adcStartTimeConst     = (uint32_t)((float)0 * 1000 / 10);    // 0 us ADC wait time
+    profileCfg.rampEndTime           = (uint32_t)((float)6 * 1000 / 10);    // 6 us ramp time
+    profileCfg.txOutPowerBackoffCode = 0;                                   // 0 dB Tx decrease
+    profileCfg.txPhaseShifter        = 0;                                   // no phase shift
+    profileCfg.freqSlopeConst        = 0;                                   // No slope
+    profileCfg.txStartTime           = (int32_t)((float)0 * 1000 / 10);     // 10's of ns
+    profileCfg.numAdcSamples         = 64;                                  // 5.12 us @ 12.5 MSPS
+    profileCfg.digOutSampleRate      = 12500;                               // KSPS
+    profileCfg.hpfCornerFreq1        = 0;                                   // 175 kHz - hpfCornerFreq1
+    profileCfg.hpfCornerFreq2        = 0;                                   // 350 kHz - hpfCornerFreq2
+    profileCfg.rxGain                = 158;                                 // 36 dB Rx Gain
+
+    /* Add the profile to the mmWave module: */
+    profileHandle = MMWave_addProfile (gMmwMssMCB.ctrlHandle, &profileCfg, &errCode);
+    if (profileHandle == NULL)
+    {
+        /* Error: Unable to add the profile. Return the error code back */
+        return errCode;
+    }
+
+    /* Record the profile: */
+    ptrBaseCfgProfileHandle[TRANSMIT_PROFILE_NUMBER] = profileHandle;
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // chirpCfg           chirpCfg 0 0 0 0 0 0 0 0
+    //<startIdx>
+    //<endIdx>
+    //<profileId>
+    //<startFreqVar>         0       % Hz
+    //<freqSlopeVar>         0       % KHz/us
+    //<idleTimeVar>          0       % microseconds
+    //<adcStartTimeVar>      0       % microseconds
+    //<txEnable>             1       % b0 Enable TX0, b1 Enable TX1, b2 Enable TX2
+
+
+    if( generate_one_gold_sequence(
+            numGoldCodeBits,
+            &goldCode,
+            goldCodePrn))
+    {
+        System_printf("Error generating transmit gold code.\n");
+        Ranging_debugAssert (0);
+    }
+
+    /* Initialize the chirp configuration: */
+    memset ((void *)&chirpCfg, 0, sizeof(rlChirpCfg_t));
+
+    for(index = 0; index < goldCode.length; index++)
+    {
+        chirpCfg.chirpStartIdx   = index + 1;
+        chirpCfg.chirpEndIdx     = index + 1;
+        chirpCfg.profileId       = TRANSMIT_PROFILE_NUMBER;
+
+        /* Translate from Hz to number of [1 LSB = (gCLI_mmwave_freq_scale_factor * 1e9) / 2^26 Hz]
+         * units of mmwavelink format */
+        chirpCfg.startFreqVar    = (uint32_t) ((float)0 * (1U << 26) /
+                                                (gMmwMssMCB.rfFreqScaleFactor * 1e9));
+
+        /* Translate from KHz/us to number of [1 LSB = (gCLI_mmwave_freq_scale_factor * 1e6) * 900 /2^26 KHz/us]
+         * units of mmwavelink format */
+        chirpCfg.freqSlopeVar    = (uint16_t) ((float)0 * (1U << 26) /
+                                               ((gMmwMssMCB.rfFreqScaleFactor * 1e6) * 900.0));
+
+        /* Translate from us to [1 LSB = 10ns] units of mmwavelink format */
+        chirpCfg.idleTimeVar     = (uint32_t)((float)0 * 1000.0 / 10.0);
+
+        /* Translate from us to [1 LSB = 10ns] units of mmwavelink format */
+        chirpCfg.adcStartTimeVar = (uint32_t)((float)0 * 1000.0 / 10.0);
+
+        if(goldCode.data[index] == 1)
+        {
+            chirpCfg.txEnable        = 1;
+        }
+        else
+        {
+            chirpCfg.txEnable        = 0;
+        }
+
+        /* Add the chirp to the profile */
+        if (MMWave_addChirp (profileHandle, &chirpCfg, &errCode) == NULL)
+        {
+            /* Error: Unable to add the chirp. Return the error code. */
+            return errCode;
+        }
+    }
+    return 0;
+}
+
+int32_t Ranging_ActivateTransmitConfiguration(float frequencyInGhz)
+{
+
+    /////////////////////////////////////////////////////////////////////////////////////////
+    // Frame configuration      frameCfg 0 0 1 0 10 1 0
+    //<chirpStartIdx>        0       % Start Index of Chirp Valid range = 0-511
+    //<chirpEndIdx>          0       % End Index of Chirp Valid range = chirpStartIdx-511
+    //<numLoops>             0       % Number of times to repeat from chirpStartIdx to chirpStartIdx in each frame, valid range = 1 to 255 \n
+    //<numFrames>            0       % Number of frame to transmit Valid Range 0 to 65535 (0 for infinite frames) \n
+    //<framePeriodicity>     0       % Frame repetition period milliseconds
+    //<triggerSelect>        0       % 0x0001 SWTRIGGER (Software API based triggering), 0x0002 HWTRIGGER (Hardware SYNC_IN based triggering)
+    //<frameTriggerDelay>
+
+    /* Initialize the frame configuration: */
+    memset ((void *)&gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg, 0, sizeof(rlFrameCfg_t));
+
+    /* Populate the frame configuration: */
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpStartIdx      = 1;          // chirpStartIdx
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpEndIdx        = 64;         // chirpEndIdx
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numLoops           = 1;          // numLoops
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numFrames          = 0;          // numFrames
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.framePeriodicity   = (uint32_t)((float)10 * 1000000 / 5);  // framePeriodicity
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.triggerSelect      = 1;                                    // triggerSelect
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.frameTriggerDelay  = (uint32_t)((float)0 * 1000000 / 5);   // frameTriggerDelay
+
+    // Ready for sensorStart
     return 0;
 }
 

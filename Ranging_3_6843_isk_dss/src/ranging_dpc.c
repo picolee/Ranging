@@ -249,11 +249,13 @@ static void DPC_ObjDetDSP_MemPoolReset(MemPoolObj *pool)
  *  @retval
  *      None
  */
+/*
 static void DPC_ObjDetDSP_MemPoolSet(MemPoolObj *pool, void *addr)
 {
     pool->currAddr = (uintptr_t)addr;
     pool->maxCurrAddr = MAX(pool->currAddr, pool->maxCurrAddr);
 }
+*/
 
 /**
  *  @b Description
@@ -268,10 +270,12 @@ static void DPC_ObjDetDSP_MemPoolSet(MemPoolObj *pool, void *addr)
  *      pointer to current address of the pool (from which next allocation will
  *      allocate to the desired alignment).
  */
+/*
 static void *DPC_ObjDetDSP_MemPoolGet(MemPoolObj *pool)
 {
     return((void *)pool->currAddr);
 }
+*/
 
 /**
  *  @b Description
@@ -580,6 +584,7 @@ exit:
  *
  * \ingroup DPC_RANGING__INTERNAL_FUNCTION
  */
+/*
 static void DPC_ObjDetDSP_quadFit(float *x, float*y, float *xv, float *yv)
 {
     float a, b, c, denom;
@@ -598,7 +603,7 @@ static void DPC_ObjDetDSP_quadFit(float *x, float*y, float *xv, float *yv)
     *xv = -b/(2 * a);
     *yv = c - b*b/(4 * a);
 }
-
+*/
 /**
  *  @b Description
  *  @n
@@ -1113,6 +1118,12 @@ int32_t DPC_Ranging_execute
         result->rangingData->eplOffset                  = outRanging.stats.eplOffset;
         result->rangingData->coarsePeakTimeLow          = result->rangingData->chirpStartTimeLow + outRanging.stats.coarsePeakTimeOffsetCycles;
         result->rangingData->coarsePeakTimeHigh         = result->rangingData->chirpStartTimeHigh;
+        result->rangingData->processingTime             = outRanging.stats.processingTime;
+        result->rangingData->magAdcTime                 = outRanging.stats.magAdcTime;
+        result->rangingData->fftTime                    = outRanging.stats.fftTime;
+        result->rangingData->vecmulTime                 = outRanging.stats.vecmulTime;
+        result->rangingData->ifftTime                   = outRanging.stats.ifftTime;
+        result->rangingData->magIfftTime                = outRanging.stats.magIfftTime;
 
         // Check for rollover
         if(result->rangingData->coarsePeakTimeLow < result->rangingData->chirpStartTimeLow)
@@ -1218,12 +1229,6 @@ static int32_t DPC_Ranging_ioctl
 
         DebugP_log0("ObjDet DPC: Pre-start Common Config IOCTL processed\n");
     }
-    else if (cmd == DPC_RANGING_IOCTL__DYNAMIC_COMP_RANGE_BIAS_AND_RX_CHAN_PHASE)
-    {
-        /* Error: This is an unsupported command */
-        retVal = DPM_EINVCMD;
-        goto exit;
-    }
     else if (cmd == DPC_RANGING_IOCTL__DYNAMIC_EXECUTE_RESULT_EXPORTED)
     {
         DPC_Ranging_ExecuteResultExportedInfo *inp;
@@ -1270,76 +1275,6 @@ static int32_t DPC_Ranging_ioctl
 
         switch (cmd)
         {
-
-#ifndef OBJDET_NO_RANGE
-            /* Range DPU related */
-            case DPC_RANGING_IOCTL__DYNAMIC_CALIB_DC_RANGE_SIG_CFG:
-            {
-                /* Error: This is an unsupported command */
-                retVal = DPM_EINVCMD;
-                break;
-            }
-#endif
-            /* CFAR DPU related */
-            case DPC_RANGING_IOCTL__DYNAMIC_CFAR_RANGE_CFG:
-            {
-                /* Error: This is an unsupported command */
-                retVal = DPM_EINVCMD;
-                goto exit;
-            }
-            case DPC_RANGING_IOCTL__DYNAMIC_CFAR_DOPPLER_CFG:
-            {
-                /* Error: This is an unsupported command */
-                retVal = DPM_EINVCMD;
-                goto exit;
-            }
-            case DPC_RANGING_IOCTL__DYNAMIC_FOV_RANGE:
-            {
-                /* Error: This is an unsupported command */
-                retVal = DPM_EINVCMD;
-                goto exit;
-            }
-            case DPC_RANGING_IOCTL__DYNAMIC_FOV_DOPPLER:
-            {
-                /* Error: This is an unsupported command */
-                retVal = DPM_EINVCMD;
-                goto exit;
-            }
-
-            /* AoA DPU related */
-            case DPC_RANGING_IOCTL__DYNAMIC_MULTI_OBJ_BEAM_FORM_CFG:
-            {
-                /* Error: This is an unsupported command */
-                retVal = DPM_EINVCMD;
-                goto exit;
-            }
-            case DPC_RANGING_IOCTL__DYNAMIC_EXT_MAX_VELOCITY:
-            {
-                /* Error: This is an unsupported command */
-                retVal = DPM_EINVCMD;
-                goto exit;
-            }
-            case DPC_RANGING_IOCTL__DYNAMIC_FOV_AOA:
-            {
-                /* Error: This is an unsupported command */
-                retVal = DPM_EINVCMD;
-                goto exit;
-            }
-            case DPC_RANGING_IOCTL__DYNAMIC_RANGE_AZIMUTH_HEAT_MAP:
-            {
-                /* Error: This is an unsupported command */
-                retVal = DPM_EINVCMD;
-                goto exit;
-            }
-
-            /* Static clutter related */
-            case DPC_RANGING_IOCTL__DYNAMIC_STATICCLUTTER_REMOVAL_CFG:
-            {
-                /* Error: This is an unsupported command */
-                retVal = DPM_EINVCMD;
-                goto exit;
-            }
-
             /* Related to pre-start configuration */
             case DPC_RANGING_IOCTL__STATIC_PRE_START_CFG:
             {

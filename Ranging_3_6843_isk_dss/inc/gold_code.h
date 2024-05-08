@@ -37,12 +37,4 @@ int16_t pad_gold_code_with_ones(
     gold_code_struct_t* unpadded_code, 
     int target_length);
 
-    
-uint16_t linear_regression(
-    uint16_t n,
-    const uint16_t x[], 
-    const uint16_t y[], 
-    float* m, 
-    float* b);
-
 #endif // GOLD_CODE_H

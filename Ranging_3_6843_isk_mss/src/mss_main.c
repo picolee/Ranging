@@ -1264,9 +1264,72 @@ static void Ranging_transmitProcessedOutput
     if(num_received >= 100)
     {
         Task_sleep(1);         // 1 millisecond
+
         snprintf(output_data,
                  sizeof(output_data),
-                 "\r\nEarly: %d\r\n",
+                 "\r\nTimes--------\r\n");
+
+        UART_writePolling (uartHandle,
+                           (uint8_t*)&output_data,
+                           strlen(output_data));
+
+        snprintf(output_data,
+                 sizeof(output_data),
+                 "Total: %d\r\n",
+                 rangingData->processingTime);
+
+        UART_writePolling (uartHandle,
+                           (uint8_t*)&output_data,
+                           strlen(output_data));
+
+        snprintf(output_data,
+                 sizeof(output_data),
+                 "MagADC: %d\r\n",
+                 rangingData->magAdcTime);
+
+        UART_writePolling (uartHandle,
+                           (uint8_t*)&output_data,
+                           strlen(output_data));
+
+        snprintf(output_data,
+                 sizeof(output_data),
+                 "FFT: %d\r\n",
+                 rangingData->fftTime);
+
+        UART_writePolling (uartHandle,
+                           (uint8_t*)&output_data,
+                           strlen(output_data));
+
+        snprintf(output_data,
+                 sizeof(output_data),
+                 "Vecmul: %d\r\n",
+                 rangingData->vecmulTime);
+
+        UART_writePolling (uartHandle,
+                           (uint8_t*)&output_data,
+                           strlen(output_data));
+
+        snprintf(output_data,
+                 sizeof(output_data),
+                 "IFFT: %d\r\n",
+                 rangingData->ifftTime);
+
+        UART_writePolling (uartHandle,
+                           (uint8_t*)&output_data,
+                           strlen(output_data));
+
+        snprintf(output_data,
+                 sizeof(output_data),
+                 "MagIFFT: %d\r\n",
+                 rangingData->magIfftTime);
+
+        UART_writePolling (uartHandle,
+                           (uint8_t*)&output_data,
+                           strlen(output_data));
+
+        snprintf(output_data,
+                 sizeof(output_data),
+                 "Early: %d\r\n",
                  rangingData->earlyValue);
 
         UART_writePolling (uartHandle,
@@ -1302,6 +1365,33 @@ static void Ranging_transmitProcessedOutput
 
         snprintf(output_data,
                  sizeof(output_data),
+                 "Detected: %d\r\n",
+                 rangingData->wasCodeDetected);
+
+        UART_writePolling (uartHandle,
+                           (uint8_t*)&output_data,
+                           strlen(output_data));
+
+        snprintf(output_data,
+                 sizeof(output_data),
+                 "Coarse: %d\r\n",
+                 rangingData->coarsePeakTimeLow);
+
+        UART_writePolling (uartHandle,
+                           (uint8_t*)&output_data,
+                           strlen(output_data));
+
+        snprintf(output_data,
+                 sizeof(output_data),
+                 "Refined: %d\r\n",
+                 rangingData->RefinedPeakTimePicoseconds);
+
+        UART_writePolling (uartHandle,
+                           (uint8_t*)&output_data,
+                           strlen(output_data));
+
+        snprintf(output_data,
+                 sizeof(output_data),
                  "\r\nadc_data\r\n");
 
         UART_writePolling (uartHandle,
@@ -1321,7 +1411,10 @@ static void Ranging_transmitProcessedOutput
                                (uint8_t*)&output_data,
                                strlen(output_data));
 
-            Task_sleep(1);         // 1 millisecond
+            if(index%100 == 0)
+            {
+                Task_sleep(1);         // 1 millisecond
+            }
         }
 
         // magnitudeData
@@ -1346,17 +1439,13 @@ static void Ranging_transmitProcessedOutput
                                (uint8_t*)&output_data,
                                strlen(output_data));
 
-            Task_sleep(1);         // 1 millisecond
+            if(index%100 == 0)
+            {
+                Task_sleep(1);         // 1 millisecond
+            }
         }
 
         // fftOfMagnitude
-        snprintf(output_data,
-                 sizeof(output_data),
-                 "\r\n---------------\r\n");
-
-        UART_writePolling (uartHandle,
-                           (uint8_t*)&output_data,
-                           strlen(output_data));
         snprintf(output_data,
                  sizeof(output_data),
                  "\r\nfft_of_mag\r\n");
@@ -1378,7 +1467,10 @@ static void Ranging_transmitProcessedOutput
                                (uint8_t*)&output_data,
                                strlen(output_data));
 
-            Task_sleep(1);         // 1 millisecond
+            if(index%100 == 0)
+            {
+                Task_sleep(1);         // 1 millisecond
+            }
         }
 
         // vectorMultiplyOfFFtedData - int 32s
@@ -1403,7 +1495,10 @@ static void Ranging_transmitProcessedOutput
                                (uint8_t*)&output_data,
                                strlen(output_data));
 
-            Task_sleep(1);         // 1 millisecond
+            if(index%100 == 0)
+            {
+                Task_sleep(1);         // 1 millisecond
+            }
         }
 
         // IFFT of two vectors multiplied together - int 32s
@@ -1428,10 +1523,13 @@ static void Ranging_transmitProcessedOutput
                                (uint8_t*)&output_data,
                                strlen(output_data));
 
-            Task_sleep(1);         // 1 millisecond
+            if(index%100 == 0)
+            {
+                Task_sleep(1);         // 1 millisecond
+            }
         }
 
-        // Magnitude of the IFFT of two vectors multiplied together - int 32s
+        // Magnitude of the IFFT of two vectors multiplied together - int 32, but only one value per sample
         snprintf(output_data,
                  sizeof(output_data),
                  "\r\nmag_ifft\r\n");
@@ -1445,15 +1543,17 @@ static void Ranging_transmitProcessedOutput
         {
             snprintf(output_data,
                      sizeof(output_data),
-                     ",%d,%d",
-                     ((cmplx32ImRe_t *)pBuffer)[index].imag,
-                     ((cmplx32ImRe_t *)pBuffer)[index].real);
+                     ",0,%d",                               // imaginary component first, then real
+                     ((uint32_t *)pBuffer)[index]);
 
             UART_writePolling (uartHandle,
                                (uint8_t*)&output_data,
                                strlen(output_data));
 
-            Task_sleep(1);         // 1 millisecond
+            if(index%100 == 0)
+            {
+                Task_sleep(1);         // 1 millisecond
+            }
         }
 
         // Complex conjugate of the FFT'd gold code
@@ -1465,7 +1565,7 @@ static void Ranging_transmitProcessedOutput
                            (uint8_t*)&output_data,
                            strlen(output_data));
 
-        pBuffer = (int16_t *)result->radarCube.data + 18*gMmwMssMCB.subFrameCfg[result->subFrameIdx].numAdcSamples;
+        pBuffer = (int16_t *)result->radarCube.data + 16*gMmwMssMCB.subFrameCfg[result->subFrameIdx].numAdcSamples;
         for(index = 0; index < gMmwMssMCB.subFrameCfg[result->subFrameIdx].numAdcSamples; index++)
         {
             snprintf(output_data,
@@ -1478,8 +1578,20 @@ static void Ranging_transmitProcessedOutput
                                (uint8_t*)&output_data,
                                strlen(output_data));
 
-            Task_sleep(1);         // 1 millisecond
+            if(index%100 == 0)
+            {
+                Task_sleep(1);         // 1 millisecond
+            }
         }
+
+        // A final \r\n
+        snprintf(output_data,
+                 sizeof(output_data),
+                 "\r\n");
+
+        UART_writePolling (uartHandle,
+                           (uint8_t*)&output_data,
+                           strlen(output_data));
     }
     /**/
 

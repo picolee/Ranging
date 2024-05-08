@@ -101,13 +101,10 @@ uint8_t gMmwL3[SOC_L3RAM_SIZE];
 uint8_t gDPC_ObjDetL2Heap[RANGING_OBJDET_L2RAM_SIZE];
 #pragma DATA_SECTION(gDPC_ObjDetL2Heap, ".dpc_l2Heap");
 
- /*! L1 RAM buffer for object detection DPC */
+ /*! L1DSRAM RAM buffer - used to hold ADC IN*/
 #define RANGING_OBJDET_L1RAM_SIZE (16U * 1024U)
 uint8_t gDPC_ObjDetL1Heap[RANGING_OBJDET_L1RAM_SIZE];
 #pragma DATA_SECTION(gDPC_ObjDetL1Heap, ".dpc_l1Heap");
-// L1 Used for:
-// hwRes->adcDataInSize = 2U * staticCfg->ADCBufData.dataProperty.numAdcSamples * sizeof(cmplx16ImRe_t);
-// rangeTwiddleSize = staticCfg->ADCBufData.dataProperty.numAdcSamples * sizeof(cmplx16ImRe_t);
 
  /*! HSRAM for processing results */
 #pragma DATA_SECTION(gHSRAM, ".demoSharedMem");
@@ -291,10 +288,9 @@ static void Ranging_sensorStopEpilog(void)
     Hwi_StackInfo   stackInfo;
     Task_Stat       stat;
     bool            hwiStackOverflow;
-
+/*
     System_printf("Data Path Stopped (last frame processing done)\n");
-
-    /* Print DSS task statistics */
+    // Print DSS task statistics
     System_printf("DSS Task Stack Usage (Note: Task Stack Usage) ==========\n");
 
     Task_stat(gMmwDssMCB.initTaskHandle, &stat);
@@ -325,6 +321,7 @@ static void Ranging_sensorStopEpilog(void)
                       stackInfo.hwiStackPeak,
                       stackInfo.hwiStackSize - stackInfo.hwiStackPeak);
     }
+*/
 }
 
 /**

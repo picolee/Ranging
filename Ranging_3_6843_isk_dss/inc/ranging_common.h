@@ -147,6 +147,21 @@ typedef struct DPU_Ranging_stats_t
     /*! @brief total processing time during all chirps in a frame excluding EDMA waiting time*/
     uint32_t    processingTime;
 
+    /*! @brief processing time to compute the magnitude of the ADC samples*/
+    uint32_t    magAdcTime;
+
+    /*! @brief processing time to compute the fft of the magnitude of the ADC samples*/
+    uint32_t    fftTime;
+
+    /*! @brief processing time to multiply the fft with the cmplx cnj of the gold code*/
+    uint32_t    vecmulTime;
+
+    /*! @brief processing time to compute the ifft of the vecmul*/
+    uint32_t    ifftTime;
+
+    /*! @brief processing time to compute the magnitude of the ifft*/
+    uint32_t    magIfftTime;
+
     /*! @brief total wait time for EDMA data transfer during all chirps in a frame*/
     uint32_t    waitTime;
 
