@@ -633,6 +633,7 @@
 #include <inc/ranging_mss.h>
 #include <inc/ranging_rfparser.h>
 #include <inc/ranging_adcconfig.h>
+#include <inc/state_machine.h>
 #include <ti/demo/utils/mmwdemo_flash.h>
 
 /* Profiler Include Files */
@@ -655,6 +656,7 @@
  */
 #define MMWDEMO_CLI_TASK_PRIORITY                 3
 #define MMWDEMO_DPC_OBJDET_DPM_TASK_PRIORITY      4
+#define STATE_MACHINE_TASK_PRIORITY               4
 #define MMWDEMO_MMWAVE_CTRL_TASK_PRIORITY         5
 
 #if (MMWDEMO_CLI_TASK_PRIORITY >= MMWDEMO_DPC_OBJDET_DPM_TASK_PRIORITY)
@@ -672,6 +674,15 @@
 
 /* CQ data is at 16 bytes alignment for mulitple chirps */
 #define MMW_DEMO_CQ_DATA_ALIGNMENT            16U
+
+// Transmit/Receive frequencies in GHz
+// The difference between these two is the intermediate frequency (IF).
+// The radar has 10 MHz IF bandwidth
+// It also has a high pass filter that can be set between 375KHz and 700 KHz
+// And the sampling rate needs to take this into account as well.
+// For our magnitude calculations, aliasing might be acceptable.
+#define TRANSMIT_FREQUENCY  63.9494
+#define RECEIVE_FREQUENCY   63.95
 
 /**************************************************************************
  *************************** Global Definitions ***************************
@@ -727,6 +738,9 @@ Ranging_calibData gCalibDataStorage;
  **************************************************************************/
 
 extern void Ranging_CLIInit(uint8_t taskPriority);
+extern int32_t Ranging_ActivateReceiveConfiguration(float frequencyInGhz);
+extern int32_t Ranging_ActivateTransmitConfiguration(float frequencyInGhz);
+extern int32_t Ranging_CreateTransmitConfiguration(float frequencyInGhz, uint8_t numGoldCodeBits, uint16_t goldCodePrn);
 extern DPM_ProcChainCfg gDPC_ObjDetRangeDSPCfg;
 
 /**************************************************************************
@@ -1253,6 +1267,9 @@ static void Ranging_transmitProcessedOutput
     // ADC Data
     if(rangingData->wasCodeDetected)
     {
+        // Configure the radar for transmit
+        Ranging_ActivateTransmitConfiguration(TRANSMIT_FREQUENCY);
+
         snprintf(output_data,
                  sizeof(output_data),
                  "\r\nCODE DETECT\r\n");
@@ -3812,6 +3829,12 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
      * Initialize the CLI Module:
      *****************************************************************************/
     Ranging_CLIInit(MMWDEMO_CLI_TASK_PRIORITY);
+
+    /*****************************************************************************
+     * Initialize the State Machine
+     *****************************************************************************/
+
+    State_Machine_Init( STATE_MACHINE_TASK_PRIORITY, &gMmwMssMCB.taskHandles.stateMachineTask );
 
     return;
 }

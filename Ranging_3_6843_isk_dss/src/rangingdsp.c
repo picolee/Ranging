@@ -37,9 +37,9 @@
  *      Implements ranging functionality on DSP.
  */
 
-/**************************************************************************
- *************************** Include Files ********************************
- **************************************************************************/
+/////////////////////////////////////////////////////////////////////////
+//                   Include Files
+/////////////////////////////////////////////////////////////////////////
 
 /* Standard Include Files. */
 #include <stdint.h>
@@ -75,16 +75,21 @@
 /* MATH utils library Include files */
 #include <ti/utils/mathutils/mathutils.h>
 
-#define  DEBUG_CHECK_PARAMS 1
+/////////////////////////////////////////////////////////////////////////
+//                  Defines
+/////////////////////////////////////////////////////////////////////////
+
+#define     DEBUG_CHECK_PARAMS      1
+#define     DETECTION_THRESHOLD     10000
 
 /* Macros to determine pingpong index */
 #define pingPongId(x) ((x) & 0x1U)
 #define isPong(x) (pingPongId(x) == 1U)
 #define BYTES_PER_SAMP_1D   sizeof(cmplx16ImRe_t)
 
-/******************************************************************
- *                      Internal Function prototype
- ******************************************************************/
+/////////////////////////////////////////////////////////////////////////
+//                  Internal Function prototype
+/////////////////////////////////////////////////////////////////////////
 static void rangingDSP_WaitEDMAComplete
 (
     EDMA_Handle         edmaHandle,
@@ -1121,75 +1126,78 @@ int32_t DPU_RangingDSP_process
         outParams->stats.earlyValue = ifftMagnitudeBuffer[index_of_max - outParams->stats.eplOffset]; // left side of the correlation peak, over halfway down
         outParams->stats.lateValue  = ifftMagnitudeBuffer[index_of_max + outParams->stats.eplOffset]; // right side of the correlation peak, over halfway down
 
-        if(     outParams->stats.earlyValue > outParams->stats.lateValue - outParams->stats.lateValue/10 &&
-                outParams->stats.earlyValue < outParams->stats.lateValue + outParams->stats.lateValue/10)
+        if(outParams->stats.promptValue > DETECTION_THRESHOLD)
         {
-            if(     max_value > 2*outParams->stats.earlyValue &&
-                    max_value > 2*outParams->stats.lateValue )
+            if(     outParams->stats.earlyValue > outParams->stats.lateValue - outParams->stats.lateValue/10 &&
+                    outParams->stats.earlyValue < outParams->stats.lateValue + outParams->stats.lateValue/10)
             {
-                // Potential peak detected
-
-                //////////////////////////////////////////
-                // 6a. Coarse peak time
-                //      Offset with respect to the first ADC sample in nanoseconds
-                //////////////////////////////////////////
-                float f_index_of_max = (float)(index_of_max);                       // range of zero to 4095
-                float f_adcSampleRate = (float)rangingObj->DPParams.adcSampleRate;  // 4000000
-                float f_secondsOffset = f_index_of_max/f_adcSampleRate;             // range of zero to 0.00102375 in steps of 1/adcSampleRate
-
-                // Convert to DSP CPU cycles (600000000 cycles per second (600 MHz))
-                outParams->stats.coarsePeakTimeOffsetCycles = ((uint32_t)(f_secondsOffset*DSP_CLOCK_MHZ*1e6)); // range of zero to 1023750
-
-
-                //////////////////////////////////////////
-                // 6b. Fine peak detection
-                //      Offset with respect to the coarse peak time
-                //////////////////////////////////////////
-                float left_slope, left_intercept;
-                float right_slope, right_intercept;
-
-                left_slope = ((float)(  ifftMagnitudeBuffer[index_of_max - outParams->stats.eplOffset + 5] -
-                                        ifftMagnitudeBuffer[index_of_max - outParams->stats.eplOffset - 5] )) / (11.0f);
-                left_intercept = ((float)ifftMagnitudeBuffer[index_of_max]) - left_slope*f_index_of_max;
-
-
-                right_slope = ((float)( ifftMagnitudeBuffer[index_of_max + outParams->stats.eplOffset + 5] -
-                                        ifftMagnitudeBuffer[index_of_max + outParams->stats.eplOffset - 5] )) / (11.0f);
-                right_intercept = ((float)ifftMagnitudeBuffer[index_of_max]) - right_slope*f_index_of_max;
-
-                /*
-                temp_one = outParams->stats.eplOffset + num_line_fit_points/2;
-                temp_two = outParams->stats.eplOffset - num_line_fit_points/2;
-                for(index = 0; index < num_line_fit_points; index++)
+                if(     max_value > 2*outParams->stats.earlyValue &&
+                        max_value > 2*outParams->stats.lateValue )
                 {
-                    ((uint32_t *)rangingObj->scratchBufferTwoL2_32kB)[index] = (uint32_t)(index_of_max - temp_one + index);
-                    ((uint32_t *)rangingObj->scratchBufferTwoL2_32kB)[num_line_fit_points + index] = (uint32_t)(index_of_max + temp_two + index);
-                }
+                    // Potential peak detected
 
-                line_fit(
-                        num_line_fit_points,
-                        ((uint32_t *)rangingObj->scratchBufferTwoL2_32kB),
-                        &bufferTwo[index_of_max - temp_one],
-                        &left_slope,
-                        &left_intercept);
+                    //////////////////////////////////////////
+                    // 6a. Coarse peak time
+                    //      Offset with respect to the first ADC sample in nanoseconds
+                    //////////////////////////////////////////
+                    float f_index_of_max = (float)(index_of_max);                       // range of zero to 4095
+                    float f_adcSampleRate = (float)rangingObj->DPParams.adcSampleRate;  // 4000000
+                    float f_secondsOffset = f_index_of_max/f_adcSampleRate;             // range of zero to 0.00102375 in steps of 1/adcSampleRate
 
-                line_fit(
-                        num_line_fit_points,
-                        ((uint32_t *)rangingObj->scratchBufferTwoL2_32kB) + num_line_fit_points,
-                        &bufferTwo[index_of_max + temp_two],
-                        &right_slope,
-                        &right_intercept);
-                        */
+                    // Convert to DSP CPU cycles (600000000 cycles per second (600 MHz))
+                    outParams->stats.coarsePeakTimeOffsetCycles = ((uint32_t)(f_secondsOffset*DSP_CLOCK_MHZ*1e6)); // range of zero to 1023750
 
-                // a slope of 300 means half the points are in the frame
-                if( left_slope > 300 &&
-                    left_slope > -1*right_slope - left_slope/10 &&
-                    left_slope < -1*right_slope + left_slope/10 )
-                {
-                    outParams->stats.wasCodeDetected = 1;
-                    float peak_index_fine = ((float) DPParams->numAdcSamples) - (right_intercept - left_intercept)/(left_slope - right_slope);
-                    float f_secondsOffsetFine = peak_index_fine/f_adcSampleRate;
-                    outParams->stats.RefinedPeakTimePicoseconds = (int32_t)((f_secondsOffsetFine - f_secondsOffset)*1e12);
+
+                    //////////////////////////////////////////
+                    // 6b. Fine peak detection
+                    //      Offset with respect to the coarse peak time
+                    //////////////////////////////////////////
+                    float left_slope, left_intercept;
+                    float right_slope, right_intercept;
+
+                    left_slope = ((float)(  ifftMagnitudeBuffer[index_of_max - outParams->stats.eplOffset + 5] -
+                                            ifftMagnitudeBuffer[index_of_max - outParams->stats.eplOffset - 5] )) / (11.0f);
+                    left_intercept = ((float)ifftMagnitudeBuffer[index_of_max]) - left_slope*f_index_of_max;
+
+
+                    right_slope = ((float)( ifftMagnitudeBuffer[index_of_max + outParams->stats.eplOffset + 5] -
+                                            ifftMagnitudeBuffer[index_of_max + outParams->stats.eplOffset - 5] )) / (11.0f);
+                    right_intercept = ((float)ifftMagnitudeBuffer[index_of_max]) - right_slope*f_index_of_max;
+
+                    /*
+                    temp_one = outParams->stats.eplOffset + num_line_fit_points/2;
+                    temp_two = outParams->stats.eplOffset - num_line_fit_points/2;
+                    for(index = 0; index < num_line_fit_points; index++)
+                    {
+                        ((uint32_t *)rangingObj->scratchBufferTwoL2_32kB)[index] = (uint32_t)(index_of_max - temp_one + index);
+                        ((uint32_t *)rangingObj->scratchBufferTwoL2_32kB)[num_line_fit_points + index] = (uint32_t)(index_of_max + temp_two + index);
+                    }
+
+                    line_fit(
+                            num_line_fit_points,
+                            ((uint32_t *)rangingObj->scratchBufferTwoL2_32kB),
+                            &bufferTwo[index_of_max - temp_one],
+                            &left_slope,
+                            &left_intercept);
+
+                    line_fit(
+                            num_line_fit_points,
+                            ((uint32_t *)rangingObj->scratchBufferTwoL2_32kB) + num_line_fit_points,
+                            &bufferTwo[index_of_max + temp_two],
+                            &right_slope,
+                            &right_intercept);
+                            */
+
+                    // a slope of 300 means half the points are in the frame
+                    if( left_slope > 300 &&
+                        left_slope > -1*right_slope - left_slope/10 &&
+                        left_slope < -1*right_slope + left_slope/10 )
+                    {
+                        outParams->stats.wasCodeDetected = 1;
+                        float peak_index_fine = ((float) DPParams->numAdcSamples) - (right_intercept - left_intercept)/(left_slope - right_slope);
+                        float f_secondsOffsetFine = peak_index_fine/f_adcSampleRate;
+                        outParams->stats.RefinedPeakTimePicoseconds = (int32_t)((f_secondsOffsetFine - f_secondsOffset)*1e12);
+                    }
                 }
             }
         }

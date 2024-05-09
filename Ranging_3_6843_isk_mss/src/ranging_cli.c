@@ -512,7 +512,7 @@ int32_t Ranging_SetBaseConfiguration(float frequencyInGhz)
     return 0;
 }
 
-int32_t Ranging_SetReceiveConfiguration(float frequencyInGhz)
+int32_t Ranging_CreateReceiveConfiguration(float frequencyInGhz)
 {
     rlProfileCfg_t          profileCfg;
     int32_t                 errCode;
@@ -650,7 +650,7 @@ int32_t Ranging_ActivateReceiveConfiguration(float frequencyInGhz)
 }
 
 
-int32_t Ranging_SetTransmitConfiguration(float frequencyInGhz, uint8_t numGoldCodeBits, uint16_t goldCodePrn)
+int32_t Ranging_CreateTransmitConfiguration(float frequencyInGhz, uint8_t numGoldCodeBits, uint16_t goldCodePrn)
 {
     rlProfileCfg_t          profileCfg;
     int32_t                 errCode;

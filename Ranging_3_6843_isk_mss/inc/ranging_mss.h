@@ -282,6 +282,9 @@ typedef struct Ranging_TaskHandles_t
 
     /*! @brief   Demo init task */
     Task_Handle initTask;
+
+    /*! @brief   Task to run the state machine */
+    Task_Handle stateMachineTask;
 } Ranging_taskHandles;
 
 /*!
