@@ -132,6 +132,51 @@ extern "C" {
 
 /** @brief Maximum number of 1D FFT bins in DC range antenna signature compensation */
 #define DPU_RANGING_SIGNATURE_COMP_MAX_BIN_SIZE               32
+ typedef struct Ranging_PRN_Detection_Stats_t
+ {
+     /*! @brief  Index of prompt value */
+     uint16_t    promptIndex;
+
+     /*! @brief  prompt value */
+     float       promptValue;
+
+     /*! @brief  early value */
+     float       earlyValue;
+
+     /*! @brief  late value */
+     float       lateValue;
+
+     /*! @brief  late value */
+     float       leftSlope;
+
+     /*! @brief  late value */
+     float       leftIntercept;
+
+     /*! @brief  late value */
+     float       rightSlope;
+
+     /*! @brief  late value */
+     float       rightIntercept;
+
+     /*! @brief  amount that the early and late indices are offset from the prompt index */
+     uint8_t     eplOffset;
+
+     /*! @brief  Time in cycles of the peak time since the first ADC sample  */
+     uint32_t    coarsePeakTimeOffsetCycles;
+
+     /*! @brief  plus/minus correction applied to the coarse peak time
+      *          Units are picoseconds  */
+     int32_t     RefinedPeakTimePicoseconds;
+
+     /*! @brief  boolean, true if code was detected */
+     uint8_t     wasCodeDetected;
+
+     /*! @brief  boolean, true if TX frame completed */
+     uint8_t     isTxComplete;
+
+     /*! @brief  PRN of the code */
+     uint16_t    rxPrn;
+ } Ranging_PRN_Detection_Stats;
 
 /**
  * @brief
@@ -165,33 +210,8 @@ typedef struct DPU_Ranging_stats_t
     /*! @brief total wait time for EDMA data transfer during all chirps in a frame*/
     uint32_t    waitTime;
 
-    /*! @brief  boolean, true if code was detected */
-    uint8_t     wasCodeDetected;
-
-    /*! @brief  PRN of the code */
-    uint16_t    PRN;
-
-    /*! @brief  Index of prompt value */
-    uint16_t    promptIndex;
-
-    /*! @brief  prompt value */
-    uint32_t    promptValue;
-
-    /*! @brief  early value */
-    uint32_t    earlyValue;
-
-    /*! @brief  late value */
-    uint32_t    lateValue;
-
-    /*! @brief  amount that the early and late indices are offset from the prompt index */
-    uint8_t     eplOffset;
-
-    /*! @brief  Time in nanoseconds of the peak time since the first ADC sample  */
-    uint32_t    coarsePeakTimeOffsetCycles;
-
-    /*! @brief  plus/minus correction applied to the coarse peak time
-     *          Units are picoseconds  */
-    int32_t     RefinedPeakTimePicoseconds;
+    // Contains early, prompt, late, offsets, PRN, etc
+    Ranging_PRN_Detection_Stats detectionStats;
 }DPU_Ranging_stats;
 
 #ifdef __cplusplus

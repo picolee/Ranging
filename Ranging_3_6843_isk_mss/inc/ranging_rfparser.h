@@ -156,9 +156,6 @@ typedef struct Ranging_RFParserOutParams_t
     /*! @brief valid Profile index */
     uint8_t     validProfileIdx;
 
-    /*! @brief   1 if valid profile has one Tx per chirp else 0 */
-    uint8_t     validProfileHasOneTxPerChirp;
-
     /*! @brief  ADCBUF will generate chirp interrupt event every this many chirps - chirpthreshold */
     uint8_t     numChirpsPerChirpEvent;
 

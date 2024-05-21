@@ -807,3 +807,48 @@ void Ranging_configLVDSHwData(uint8_t subFrameIndx)
         Ranging_debugAssert(0);
     }
 }
+
+
+
+/**
+ *  @b Description
+ *  @n
+ *      Transmit user data over LVDS interface.
+ *
+ *  @param[in]  subFrameIndx Sub-frame index
+ *  @param[in]  dpcResults   pointer to DPC result
+ *
+ */
+void Ranging_transferLVDSUserData(uint8_t subFrameIndx,
+                                  DPC_Ranging_ExecuteResult *dpcResults)
+{
+    int32_t errCode;
+    DPC_Ranging_Stats *stats;
+
+    stats = (DPC_Ranging_Stats *) SOC_translateAddress((uint32_t)dpcResults->stats,
+                                                 SOC_TranslateAddr_Dir_FROM_OTHER_CPU,
+                                                 &errCode);
+    DebugP_assert ((uint32_t)stats != SOC_TRANSLATEADDR_INVALID);
+
+    /* Delete previous SW session if it exists. SW session is being
+       reconfigured every frame because number of detected objects
+       may change from frame to frame which implies that the size of
+       the streamed data may change. */
+    if(gMmwMssMCB.lvdsStream.swSessionHandle != NULL)
+    {
+        Ranging_LVDSStreamDeleteSwSession();
+    }
+
+    /* Populate user data header that will be streamed out*/
+    gMmwMssMCB.lvdsStream.userDataHeader.frameNum  = stats->frameStartIntCounter;
+    gMmwMssMCB.lvdsStream.userDataHeader.subFrameNum  = (uint16_t) dpcResults->subFrameIdx;
+
+    /* If SW LVDS stream is enabled, start the session here. User data will immediately
+       start to stream over LVDS.*/
+    if(CBUFF_activateSession (gMmwMssMCB.lvdsStream.swSessionHandle, &errCode) < 0)
+    {
+        System_printf("Failed to activate CBUFF session for LVDS stream SW. errCode=%d\n",errCode);
+        Ranging_debugAssert(0);
+        return;
+    }
+}

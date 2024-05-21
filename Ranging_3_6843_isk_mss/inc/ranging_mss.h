@@ -511,9 +511,6 @@ extern int32_t Ranging_startSensor(void);
 extern void Ranging_stopSensor(void);
 
 /* functions to manage the dynamic configuration */
-extern uint8_t Ranging_isAllCfgInPendingState(void);
-extern uint8_t Ranging_isAllCfgInNonPendingState(void);
-extern void Ranging_resetStaticCfgPendingState(void);
 extern void Ranging_CfgUpdate(void *srcPtr, uint32_t offset, uint32_t size, int8_t subFrameNum);
 
 /* Debug Functions */

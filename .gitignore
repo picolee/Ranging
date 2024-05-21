@@ -1,5 +1,7 @@
 Ranging_3_6843_isk_dss/Debug/
 Ranging_3_6843_isk_mss/Debug/
+Ranging_3_6843_isk_mss/src/sysbios/
 /.metadata/
 .jxbrowser*
 RemoteSystemsTempFiles/
+*.obj

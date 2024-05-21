@@ -53,6 +53,7 @@
 #include <ti/utils/mathutils/mathutils.h>
 #include <ti/utils/cycleprofiler/cycle_profiler.h>
 #include <ti/control/dpm/dpm.h>
+#include <ti/control/mmwave/mmwave.h>
 #include <ti/board/antenna_geometry.h>
 
 /* C674x mathlib */
@@ -379,14 +380,7 @@ void DPC_Ranging_chirpEvent (DPM_DPCHandle handle)
 
     objDetObj->rangingData.chirpStartTimeLow = chirpTimeLow;
     objDetObj->rangingData.chirpStartTimeHigh = chirpTimeHigh;
-    objDetObj->rangingData.wasCodeDetected = 0;
-    objDetObj->rangingData.RefinedPeakTimePicoseconds = 0;
-    objDetObj->rangingData.coarsePeakTimeLow = 0;
-    objDetObj->rangingData.coarsePeakTimeHigh = 0;
-    objDetObj->rangingData.earlyValue = 0;
-    objDetObj->rangingData.promptValue = 0;
-    objDetObj->rangingData.lateValue = 0;
-    objDetObj->rangingData.eplOffset = 0;
+    memset(&objDetObj->rangingData.detectionStats, 0, sizeof(Ranging_PRN_Detection_Stats));
     objDetObj->rangingData.responseStartTimeLow = 0;
     objDetObj->rangingData.responseStartTimeHigh = 0;
 
@@ -476,6 +470,7 @@ static int32_t DPC_ObjDetDSP_rangeConfig
     rangeCfg.staticCfg.numTxAntennas        = staticCfg->numTxAntennas;
     rangeCfg.staticCfg.numVirtualAntennas   = staticCfg->numVirtualAntennas;
     rangeCfg.staticCfg.adcSampleRate        = staticCfg->adcSampleRate;
+    rangeCfg.staticCfg.rxPrn                = staticCfg->rxPrn;
 
     /* radarCube */
     hwRes->radarCube = *radarCube;
@@ -758,6 +753,8 @@ exit:
  *
  *  \ingroup DPC_RANGING__INTERNAL_FUNCTION
  */
+#pragma FUNCTION_OPTIONS(DPC_ObjDetDSP_preStartConfig, "--opt_for_speed")
+#pragma CODE_SECTION(DPC_ObjDetDSP_preStartConfig, ".l1pcode")
 static int32_t DPC_ObjDetDSP_preStartConfig
 (
     SubFrameObj                     *subFrameObj,
@@ -1108,16 +1105,7 @@ int32_t DPC_Ranging_execute
         result->rangingData = &objDetObj->rangingData;
 
         // Populate the ranging detection result
-        result->rangingData->wasCodeDetected            = outRanging.stats.wasCodeDetected;
-        result->rangingData->PRN                        = outRanging.stats.PRN;
-        result->rangingData->RefinedPeakTimePicoseconds = outRanging.stats.RefinedPeakTimePicoseconds;
-        result->rangingData->earlyValue                 = outRanging.stats.earlyValue;
-        result->rangingData->lateValue                  = outRanging.stats.lateValue;
-        result->rangingData->promptValue                = outRanging.stats.promptValue;
-        result->rangingData->promptIndex                = outRanging.stats.promptIndex;
-        result->rangingData->eplOffset                  = outRanging.stats.eplOffset;
-        result->rangingData->coarsePeakTimeLow          = result->rangingData->chirpStartTimeLow + outRanging.stats.coarsePeakTimeOffsetCycles;
-        result->rangingData->coarsePeakTimeHigh         = result->rangingData->chirpStartTimeHigh;
+        memcpy(&result->rangingData->detectionStats, &outRanging.stats.detectionStats, sizeof(Ranging_PRN_Detection_Stats));
         result->rangingData->processingTime             = outRanging.stats.processingTime;
         result->rangingData->magAdcTime                 = outRanging.stats.magAdcTime;
         result->rangingData->fftTime                    = outRanging.stats.fftTime;
@@ -1126,10 +1114,7 @@ int32_t DPC_Ranging_execute
         result->rangingData->magIfftTime                = outRanging.stats.magIfftTime;
 
         // Check for rollover
-        if(result->rangingData->coarsePeakTimeLow < result->rangingData->chirpStartTimeLow)
-        {
-            result->rangingData->coarsePeakTimeHigh += 1;
-        }
+
 
         /* populate DPM_resultBuf - first pointer and size are for results of the processing */
         result->radarCube.data = rangingObj->radarCubebuf;
@@ -1266,12 +1251,8 @@ static int32_t DPC_Ranging_ioctl
     }
     else
     {
-        uint8_t subFrameNum;
-
         /* First argument is sub-frame number */
         DebugP_assert(arg != NULL);
-        subFrameNum = *(uint8_t *)arg;
-        subFrmObj = &objDetObj->subFrameObj[subFrameNum];
 
         switch (cmd)
         {
@@ -1282,6 +1263,7 @@ static int32_t DPC_Ranging_ioctl
                 DPC_Ranging_DPC_IOCTL_preStartCfg_memUsage *memUsage;
                 MemoryP_Stats statsStart;
                 MemoryP_Stats statsEnd;
+                uint8_t subFrameNum;
 
                 /* Pre-start common config must be received before pre-start configs
                  * are received. */
@@ -1297,11 +1279,26 @@ static int32_t DPC_Ranging_ioctl
                 MemoryP_getStats(&statsStart);
 
                 cfg = (DPC_Ranging_PreStartCfg*)arg;
+                subFrameNum = cfg->subFrameNum;
+                subFrmObj = &objDetObj->subFrameObj[subFrameNum];
 
                 memUsage = &cfg->memUsage;
                 memUsage->L3RamTotal = objDetObj->L3RamObj.cfg.size;
                 memUsage->CoreL2RamTotal = objDetObj->CoreL2RamObj.cfg.size;
                 memUsage->CoreL1RamTotal = objDetObj->CoreL1RamObj.cfg.size;
+
+                // This series of calls needs to be flattened.
+                // Functions need to be renamed to make sense.
+                // DPC_ObjDetDSP_preStartConfig --> DPC_ObjDetDSP_rangeConfig -->
+                // --> DPU_RangingDSP_config --> rangingDSP_ParseConfig
+                // DPC_ObjDetDSP_preStartConfig resets L1, L2, L3 memory pools
+                // it then allocates memory for the radar cube
+                // Then DPC_ObjDetDSP_preStartConfig calls DPC_ObjDetDSP_rangeConfig
+                // DPC_ObjDetDSP_rangeConfig extracts some parameters from the staticCfg passed by MSS
+                // Then DPC_ObjDetDSP_rangeConfig sets up the L1, L2, and L3 pointers and the EDMA
+                // Then DPC_ObjDetDSP_rangeConfig calls DPU_RangingDSP_config
+                // DPU_RangingDSP_config performs some validation, then calls rangingDSP_ParseConfig
+                // rangingDSP_ParseConfig extracts more parameters and fills out rangingDSPObj
                 retVal = DPC_ObjDetDSP_preStartConfig(subFrmObj,
                              &objDetObj->commonCfg, 
                              cfg,
@@ -1326,6 +1323,46 @@ static int32_t DPC_Ranging_ioctl
                 memUsage->SystemHeapDPCUsed = statsStart.totalFreeSize - statsEnd.totalFreeSize;
 
                 DebugP_log1("ObjDet DPC: Pre-start Config IOCTL processed (subFrameIndx = %d)\n", subFrameNum);
+                break;
+            }
+
+            case DPC_RANGING_IOCTL_START_SENSOR:
+            {
+                int32_t     errCode;
+                MMWave_CalibrationCfg   calibrationCfg;
+                MMWave_Handle           ctrlHandle;
+
+                ctrlHandle = (MMWave_Handle*)arg;
+                ///////////////////////////////////////////////////////////////////////////////
+                // RF :: now start the RF and the real time ticking
+                ///////////////////////////////////////////////////////////////////////////////
+                // Initialize the calibration configuration:
+                memset ((void *)&calibrationCfg, 0, sizeof(MMWave_CalibrationCfg));
+                // Populate the calibration configuration:
+                calibrationCfg.dfeDataOutputMode = MMWave_DFEDataOutputMode_FRAME;
+                calibrationCfg.u.chirpCalibrationCfg.enableCalibration    = false;
+                calibrationCfg.u.chirpCalibrationCfg.enablePeriodicity    = false;
+                calibrationCfg.u.chirpCalibrationCfg.periodicTimeInFrames = 10U;
+
+                DebugP_log0("App: MMWave_start Issued\n");
+
+                DebugP_log0("Starting Sensor (issuing MMWave_start)\n");
+
+                // Start the mmWave module: The configuration has been applied successfully.
+                if (MMWave_start(ctrlHandle, &calibrationCfg, &errCode) < 0)
+                {
+                    MMWave_ErrorLevel   errorLevel;
+                    int16_t             mmWaveErrorCode;
+                    int16_t             subsysErrorCode;
+
+                    /* Error/Warning: Unable to start the mmWave module */
+                    MMWave_decodeError (errCode, &errorLevel, &mmWaveErrorCode, &subsysErrorCode);
+                    DebugP_log2 ("Error: mmWave Start failed [mmWave Error: %d Subsys: %d]\n", mmWaveErrorCode, subsysErrorCode);
+                    /* datapath has already been moved to start state; so either we initiate a cleanup of start sequence or
+                       assert here and re-start from the beginning. For now, choosing the latter path */
+                    DebugP_assert(0);
+                    return -1;
+                }
                 break;
             }
 

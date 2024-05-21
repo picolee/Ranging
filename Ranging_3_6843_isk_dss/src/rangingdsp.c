@@ -71,6 +71,7 @@
 #include <inc/rangingdsp_internal.h>
 #include <inc/gold_code.h>
 #include <inc/line_fit.h>
+#include <inc/computed_twiddle_factor.h>
 
 /* MATH utils library Include files */
 #include <ti/utils/mathutils/mathutils.h>
@@ -80,7 +81,7 @@
 /////////////////////////////////////////////////////////////////////////
 
 #define     DEBUG_CHECK_PARAMS      1
-#define     DETECTION_THRESHOLD     10000
+#define     DETECTION_THRESHOLD     1e13f
 
 /* Macros to determine pingpong index */
 #define pingPongId(x) ((x) & 0x1U)
@@ -469,7 +470,7 @@ static int32_t rangingDSP_ParseConfig
     rangingObj->iFftDataL3                  = (cmplx32ImRe_t *)(((char *)rangingObj->vectorMultiplyOfFFtedDataL3)    + 2 * pStaticCfg->ADCBufData.dataSize); // Each value 4 bytes
     rangingObj->magIfftDataL3               = (uint32_t      *)(((char *)rangingObj->iFftDataL3)            + 2 * pStaticCfg->ADCBufData.dataSize);     // Each value 4 bytes, but only 1 value per sample
     rangingObj->fftGoldCodeL3_16kB          = (cmplx16ImRe_t *)(((char *)rangingObj->magIfftDataL3)         + pStaticCfg->ADCBufData.dataSize); // Each value 2 bytes
-    rangingObj->fftTwiddle16x16L3_16kB      = (cmplx16ImRe_t *)(((char *)rangingObj->fftGoldCodeL3_16kB)    + pStaticCfg->ADCBufData.dataSize);     // Each value 2 bytes
+    rangingObj->fftTwiddle16x16L3_16kB      = (cmplx16ImRe_t *)twiddle_factors;     // Each value 2 bytes
 
     /* Save Scratch buffers */
     rangingObj->scratchBufferOneL2_32kB     = pHwRes->fftTwiddle16x16L2_16kB;
@@ -558,6 +559,8 @@ DPU_RangingDSP_Handle DPU_RangingDSP_init
  *  @retval
  *      Error       - <0
  */
+#pragma FUNCTION_OPTIONS(DPU_RangingDSP_config, "--opt_for_speed")
+#pragma CODE_SECTION(DPU_RangingDSP_config, ".l1pcode")
 int32_t DPU_RangingDSP_config
 (
     DPU_RangingDSP_Handle     handle,
@@ -574,6 +577,8 @@ int32_t DPU_RangingDSP_config
     double                      chip_duration    = 0.000006;
     double                      zeros_duration   = 0.000003;
     int16_t                     index;
+    int16_t                     first_non_zero_index = -1;
+    int16_t                     last_non_zero_index = -1;
 
     rangingObj = (rangingDSPObj *)handle;
     if(rangingObj == NULL)
@@ -645,9 +650,13 @@ int32_t DPU_RangingDSP_config
         goto exit;
     }
 
+    ////////////////////////////////////////////////////
+    // THIS MUST BE UNCOMMENTED FOR IT TO WORK - takes up ~ 3K of program space!
+    ////////////////////////////////////////////////////
     // Generate twiddle factors for 1D FFT. This is one time
-    mmwavelib_gen_twiddle_fft16x16_imre_sa((short *)rangingObj->fftTwiddle16x16L2_16kB, rangingObj->DPParams.numAdcSamples);
-    memcpy(rangingObj->fftTwiddle16x16L3_16kB, rangingObj->fftTwiddle16x16L2_16kB, rangingObj->DPParams.numAdcSamples * sizeof(cmplx16ImRe_t) );
+    //mmwavelib_gen_twiddle_fft16x16_imre_sa((short *)rangingObj->fftTwiddle16x16L2_16kB, rangingObj->DPParams.numAdcSamples);
+
+    memcpy(rangingObj->fftTwiddle16x16L2_16kB, twiddle_factors, rangingObj->DPParams.numAdcSamples * sizeof(cmplx16ImRe_t) );
 
     // Generate twiddle factors for the IFFT. This is one time
     gen_twiddle_fft16x32((short *)rangingObj->ifftTwiddle16x32L2_16kB, rangingObj->DPParams.numAdcSamples);
@@ -655,12 +664,12 @@ int32_t DPU_RangingDSP_config
     ////////////////////////////////////////////////////////////////////////////////
     // Gold code, length 2^N - 1
     rangingObj->gold_code_n = 6;
-    rangingObj->gold_code_prn = 3;
+    rangingObj->rxPrn = pStaticCfg->rxPrn;
     gold_code.data = NULL;
     if (generate_one_gold_sequence(
         rangingObj->gold_code_n,
         &gold_code,
-        rangingObj->gold_code_prn))
+        rangingObj->rxPrn))
     {
         if(gold_code.data != NULL)
         {
@@ -700,7 +709,20 @@ int32_t DPU_RangingDSP_config
     for(index = 0; index < sampled_gold_code.length; index++)
     {
         rangingObj->scratchBufferTwoL2_32kB[index].real = sampled_gold_code.data[index]*100;
+
+        // Compute the index of the first and last non-zero indices
+        // These will be used for signal and noise calculations later
+        if(first_non_zero_index == -1 && sampled_gold_code.data[index] > 0)
+        {
+            first_non_zero_index = index;
+        }
+        if(last_non_zero_index == -1 && sampled_gold_code.data[sampled_gold_code.length - index - 1] > 0)
+        {
+            last_non_zero_index = sampled_gold_code.length - index - 1;
+        }
     }
+    rangingObj->firstGoldCodeNonZeroIndex = first_non_zero_index;
+    rangingObj->lastGoldCodeNonZeroIndex = last_non_zero_index;
     //memcpy(rangingObj->magnitudeData, rangingObj->scratchBuffer, rangingObj->DPParams.numAdcSamples * sizeof(cmplx16ImRe_t));
 
     /////////////////////////////////////////////////////////
@@ -874,6 +896,11 @@ void calcMagInt16
     }
 }
 
+// The CODE_SECTION pragma places the code into the fastest memory cache, defined in mmw_dss_linker.cmd
+// The FUNCTION_OPTIONS "--opt_for_speed" means that the compiler places all of the functions
+// that are called from DPU_RangingDSP_process in that section as well
+#pragma FUNCTION_OPTIONS(DPU_RangingDSP_process, "--opt_for_speed")
+#pragma CODE_SECTION(DPU_RangingDSP_process, ".l1pcode")
 /**
  *  @b Description
  *  @n
@@ -908,6 +935,7 @@ int32_t DPU_RangingDSP_process
     uint32_t            outChannel;
     int32_t             retVal = 0;
     uint16_t            index;
+    Ranging_PRN_Detection_Stats * detectionStats = &outParams->stats.detectionStats;
 
     rangingObj = (rangingDSPObj *)handle;
     if(rangingObj == NULL)
@@ -928,33 +956,37 @@ int32_t DPU_RangingDSP_process
 
     DPParams = &rangingObj->DPParams;
 
+    detectionStats->wasCodeDetected = 0;
+
     // If we are transmitting, the number of chirps per frame is > 1
     // We only need to process data if we are receiving.
     if(DPParams->numChirpsPerFrame > 1)
     {
-
+        detectionStats->isTxComplete = 1;
     }
     else
     {
         uint32_t            dataInAddr;
         int16_t             *L1Buffer16kB;
-        uint16_t            index_of_max            = 0;
-        uint32_t            max_value               = 0;
+        //uint16_t            index_of_max            = 0;
+        //uint32_t            max_value               = 0;
         uint16_t            num_line_fit_points     = 11;
         cmplx16ImRe_t *     scratchPageTwo_L2_16kB  = rangingObj->scratchBufferTwoL2_32kB + DPParams->numAdcSamples;
         cmplx32ImRe_t *     ifftBuffer              = (cmplx32ImRe_t *) rangingObj->scratchBufferOneL2_32kB;
-        uint32_t      *     ifftMagnitudeBuffer     = (uint32_t *)      rangingObj->scratchBufferTwoL2_32kB;
+        float         *     ifftMagnitudeBuffer     = (float *)      rangingObj->scratchBufferTwoL2_32kB;
         cmplx32ImRe_t *     vectorMultiplyBuffer    = (cmplx32ImRe_t *) rangingObj->scratchBufferTwoL2_32kB;
         float temp_i;
         float temp_q;
+        int32_t int_index_of_max;
+        float32_t maxpow = 0;
 
         edmaHandle = rangingObj->edmaHandle;
         waitingTime = 0;
 
         outParams->endOfChirp = false;
 
-        outParams->stats.PRN = rangingObj->gold_code_prn;
-        outParams->stats.wasCodeDetected = 0;
+        detectionStats->rxPrn = rangingObj->rxPrn;
+        detectionStats->isTxComplete = 0;
 
         dataInAddr = (uint32_t)&rangingObj->ADCdataBuf[0];
 
@@ -1064,6 +1096,7 @@ int32_t DPU_RangingDSP_process
         //      This overwrites the Complex Conjugate(FFT(Gold Code)) and FFT twiddle factors
         //      They need to be copied back from L3 later
         //      Inefficient - takes 241 us - only need half as many computations once optimized
+        //      This array needs to be reversed
         ///////////////////////////////////////////////////////////////////
         startTime1 = Cycleprofiler_getTimeStamp();
         DSP_ifft16x32(
@@ -1075,6 +1108,12 @@ int32_t DPU_RangingDSP_process
         outParams->stats.ifftTime = stopTime - startTime1;
         memcpy(rangingObj->iFftDataL3, ifftBuffer, DPParams->numAdcSamples * sizeof(cmplx32ImRe_t) );
 
+        // Reverse the ifft Buffer
+        for(index = 0; index < DPParams->numAdcSamples; index++)
+        {
+            vectorMultiplyBuffer[index] = ifftBuffer[DPParams->numAdcSamples - 1 - index];
+        }
+
 
         /////////////////////////////////////////////////////////////////////
         // 5.  Calculate magnitude and find the max
@@ -1082,57 +1121,100 @@ int32_t DPU_RangingDSP_process
         //      The IFFT buffer is reversed, so we reverse it here
         /////////////////////////////////////////////////////////////////////
         startTime1 = Cycleprofiler_getTimeStamp();
-        uint32_t      reversed_index;
-        index_of_max = 0;
-        max_value = 0;
-        for(index = 0; index < DPParams->numAdcSamples; index++)
-        {
-            /////////////////////////////////////////////////////
-            // Calculate magnitude
-            //      Very costly (1900us), can be optimized - look at mmwavelib_log2Abs16 for inspiration
-            //      Also see mmwavelib_power
-            /////////////////////////////////////////////////////
-            // Square
-            // I sample
-            temp_i = ((float)ifftBuffer[index].real) * ((float)ifftBuffer[index].real);
-
-            // Q sample
-            temp_q = ((float)ifftBuffer[index].imag) * ((float)ifftBuffer[index].imag);
-
-            // sqrt(sum of I^2 + Q^2)
-            reversed_index = DPParams->numAdcSamples - index - 1;
-            ifftMagnitudeBuffer[reversed_index] = (uint32_t)sqrt(temp_i + temp_q);
-
-            /////////////////////////////////////////////////////
-            // Find the max
-            /////////////////////////////////////////////////////
-            if( max_value < ifftMagnitudeBuffer[reversed_index])
-            {
-                max_value = ifftMagnitudeBuffer[reversed_index];
-                index_of_max = reversed_index;
-            }
-        }
+        int_index_of_max = mmwavelib_powerAndMax((int32_t *) vectorMultiplyBuffer,
+                                                 DPParams->numAdcSamples,           // number of complex samples
+                                                 ifftMagnitudeBuffer,
+                                                 &maxpow);
         stopTime = Cycleprofiler_getTimeStamp();
         outParams->stats.magIfftTime = stopTime - startTime1;
-        memcpy(rangingObj->magIfftDataL3, ifftMagnitudeBuffer, DPParams->numAdcSamples * sizeof(uint32_t) );
-        outParams->stats.promptValue = max_value;
-        outParams->stats.promptIndex = index_of_max;
+        memcpy(rangingObj->magIfftDataL3, ifftMagnitudeBuffer, DPParams->numAdcSamples * sizeof(float) );
+        detectionStats->promptValue = maxpow;
+        detectionStats->promptIndex = (uint32_t) int_index_of_max;
 
         //////////////////////////////////////////////////////////////////////
         // 6. Threshold check
         //      Determine if the peak corresponds to an actual code match by using a couple of threshold checks
         /////////////////////////////////////////////////////////////////////
-        outParams->stats.eplOffset  = 14;
-        outParams->stats.earlyValue = ifftMagnitudeBuffer[index_of_max - outParams->stats.eplOffset]; // left side of the correlation peak, over halfway down
-        outParams->stats.lateValue  = ifftMagnitudeBuffer[index_of_max + outParams->stats.eplOffset]; // right side of the correlation peak, over halfway down
 
-        if(outParams->stats.promptValue > DETECTION_THRESHOLD)
+        /*
+
+        // Find the signal power and noise floor
+        // There are chip_duration * sampling_rate samples per chip
+        float   chip_duration           = 0.000006;
+        float   zeros_duration          = 0.000003;
+        float   sample_rate             = 4e6;
+        uint16_t num_signal_samples     = floor(chip_duration*sample_rate) - 1;
+        uint16_t num_zeros_samples      = floor(zeros_duration*sample_rate) - 1;
+        uint32_t    avg_signal_power    = 0;
+        uint32_t    avg_noise_power     = 0;
+        uint16_t power_index;
+        // COMPUTE SNR
+        if( int_index_of_max < DPParams->numAdcSamples/2 )
         {
-            if(     outParams->stats.earlyValue > outParams->stats.lateValue - outParams->stats.lateValue/10 &&
-                    outParams->stats.earlyValue < outParams->stats.lateValue + outParams->stats.lateValue/10)
+            for(index = 0; index < num_signal_samples; index++)
             {
-                if(     max_value > 2*outParams->stats.earlyValue &&
-                        max_value > 2*outParams->stats.lateValue )
+                // L1Buffer16kB holds the magnitude of the ADC data.
+                // Real channel (odd indices) has a value, imaginary channel (even indices) has zeros.
+                // The int_index_of_max is the rising edge of the first bit
+                power_index = 2*int_index_of_max;  // index_of_max is in a float array of magnitudes.
+                                                   // Multiply it by two to adjust it to a cmplx16ImRe_t array.
+                power_index += 3;                  // Add three to ensure we are at the top of the signal chip, not on the rising edge
+                power_index += 2*index;            // Multiply it by two to adjust it to a cmplx16ImRe_t array.
+                power_index += 2*rangingObj->firstGoldCodeNonZeroIndex;  // Just in case the first non zero bit is not at the start
+                avg_signal_power += L1Buffer16kB[power_index];
+            }
+            avg_signal_power /= num_signal_samples;
+
+            if(int_index_of_max - 3 - 2*num_zeros_samples >= 0)
+            {
+                for(index = 0; index < num_zeros_samples; index++)
+                {
+                    // L1Buffer16kB holds the magnitude of the ADC data.
+                    // Real channel (odd indices) has a value, imaginary channel (even indices) has zeros.
+                    power_index = 2*int_index_of_max;  // index_of_max is in a float array of magnitudes.
+                                                       // Multiply it by two to adjust it to a cmplx16ImRe_t array.
+                    power_index -= 3;                  // Subtract three to ensure we are off the signal chip, not on the rising edge
+                    power_index -= 2*index;            // Multiply it by two to adjust it to a cmplx16ImRe_t array.
+                    power_index += 2*rangingObj->firstGoldCodeNonZeroIndex;  // Just in case the first non zero bit is not at the start
+                    avg_noise_power += L1Buffer16kB[power_index];
+                }
+                avg_noise_power /= num_zeros_samples;
+            }
+            else
+            {
+                for(index = 0; index < num_zeros_samples; index++)
+                {
+                    // L1Buffer16kB holds the magnitude of the ADC data.
+                    // Real channel (odd indices) has a value, imaginary channel (even indices) has zeros.
+                    power_index = 2*int_index_of_max;       // index_of_max is in a float array of magnitudes.
+                                                            // Multiply it by two to adjust it to a cmplx16ImRe_t array.
+                    power_index += 2*num_signal_samples;    // Move to the other side of the chip
+                    power_index += 7;                       // Add seven to ensure we are off the signal chip, not on the rising edge
+                    power_index += 2*index;                 // Multiply it by two to adjust it to a cmplx16ImRe_t array.
+                    power_index += 2*rangingObj->firstGoldCodeNonZeroIndex;  // Just in case the first non zero bit is not at the start
+                    avg_noise_power += L1Buffer16kB[2*int_index_of_max + 7 + 2*num_signal_samples + 2*index];
+                }
+                avg_noise_power /= num_zeros_samples;
+            }
+        }
+        else
+        {
+            // Perform a similar calculation using rangingObj->lastGoldCodeNonZeroIndex
+        }
+        */
+
+        detectionStats->eplOffset  = 7;
+        detectionStats->earlyValue = ifftMagnitudeBuffer[int_index_of_max - detectionStats->eplOffset]; // left side of the correlation peak, over halfway down
+        detectionStats->lateValue  = ifftMagnitudeBuffer[int_index_of_max + detectionStats->eplOffset]; // right side of the correlation peak, over halfway down
+
+        // COMPUTE THRESHOLD
+        if(detectionStats->promptValue > DETECTION_THRESHOLD)
+        {
+            if(     detectionStats->earlyValue > detectionStats->lateValue - detectionStats->lateValue/5 &&
+                    detectionStats->earlyValue < detectionStats->lateValue + detectionStats->lateValue/5)
+            {
+                if(     maxpow > 1.25*detectionStats->earlyValue &&
+                        maxpow > 1.25*detectionStats->lateValue )
                 {
                     // Potential peak detected
 
@@ -1140,29 +1222,28 @@ int32_t DPU_RangingDSP_process
                     // 6a. Coarse peak time
                     //      Offset with respect to the first ADC sample in nanoseconds
                     //////////////////////////////////////////
-                    float f_index_of_max = (float)(index_of_max);                       // range of zero to 4095
+                    float f_index_of_max = (float)(int_index_of_max);                       // range of zero to 4095
                     float f_adcSampleRate = (float)rangingObj->DPParams.adcSampleRate;  // 4000000
                     float f_secondsOffset = f_index_of_max/f_adcSampleRate;             // range of zero to 0.00102375 in steps of 1/adcSampleRate
 
                     // Convert to DSP CPU cycles (600000000 cycles per second (600 MHz))
-                    outParams->stats.coarsePeakTimeOffsetCycles = ((uint32_t)(f_secondsOffset*DSP_CLOCK_MHZ*1e6)); // range of zero to 1023750
-
+                    detectionStats->coarsePeakTimeOffsetCycles = ((uint32_t)(f_secondsOffset*DSP_CLOCK_MHZ*1e6)); // range of zero to 1023750
 
                     //////////////////////////////////////////
                     // 6b. Fine peak detection
                     //      Offset with respect to the coarse peak time
                     //////////////////////////////////////////
-                    float left_slope, left_intercept;
-                    float right_slope, right_intercept;
 
-                    left_slope = ((float)(  ifftMagnitudeBuffer[index_of_max - outParams->stats.eplOffset + 5] -
-                                            ifftMagnitudeBuffer[index_of_max - outParams->stats.eplOffset - 5] )) / (11.0f);
-                    left_intercept = ((float)ifftMagnitudeBuffer[index_of_max]) - left_slope*f_index_of_max;
+                    detectionStats->leftSlope      = ( sqrt(ifftMagnitudeBuffer[int_index_of_max - detectionStats->eplOffset + 2]) -
+                                                        sqrt(ifftMagnitudeBuffer[int_index_of_max - detectionStats->eplOffset - 2]) ) / (11.0f);
+
+                    detectionStats->leftIntercept  = ( sqrt(ifftMagnitudeBuffer[int_index_of_max])) - detectionStats->leftSlope*f_index_of_max;
 
 
-                    right_slope = ((float)( ifftMagnitudeBuffer[index_of_max + outParams->stats.eplOffset + 5] -
-                                            ifftMagnitudeBuffer[index_of_max + outParams->stats.eplOffset - 5] )) / (11.0f);
-                    right_intercept = ((float)ifftMagnitudeBuffer[index_of_max]) - right_slope*f_index_of_max;
+                    detectionStats->rightSlope     = ( sqrt(ifftMagnitudeBuffer[int_index_of_max + detectionStats->eplOffset + 2]) -
+                                                        sqrt(ifftMagnitudeBuffer[int_index_of_max + detectionStats->eplOffset - 2]) ) / (11.0f);
+
+                    detectionStats->rightIntercept = ( sqrt(ifftMagnitudeBuffer[int_index_of_max])) - detectionStats->rightSlope*f_index_of_max;
 
                     /*
                     temp_one = outParams->stats.eplOffset + num_line_fit_points/2;
@@ -1186,17 +1267,16 @@ int32_t DPU_RangingDSP_process
                             &bufferTwo[index_of_max + temp_two],
                             &right_slope,
                             &right_intercept);
-                            */
+                    */
 
-                    // a slope of 300 means half the points are in the frame
-                    if( left_slope > 300 &&
-                        left_slope > -1*right_slope - left_slope/10 &&
-                        left_slope < -1*right_slope + left_slope/10 )
+                    if( detectionStats->leftSlope > -1*detectionStats->rightSlope - detectionStats->leftSlope/5 &&
+                            detectionStats->leftSlope < -1*detectionStats->rightSlope + detectionStats->leftSlope/5 )
                     {
-                        outParams->stats.wasCodeDetected = 1;
-                        float peak_index_fine = ((float) DPParams->numAdcSamples) - (right_intercept - left_intercept)/(left_slope - right_slope);
+                        detectionStats->wasCodeDetected = 1;
+                        float peak_index_fine = ((float) DPParams->numAdcSamples) - \
+                                (detectionStats->rightIntercept - detectionStats->leftIntercept)/(detectionStats->leftSlope - detectionStats->rightSlope);
                         float f_secondsOffsetFine = peak_index_fine/f_adcSampleRate;
-                        outParams->stats.RefinedPeakTimePicoseconds = (int32_t)((f_secondsOffsetFine - f_secondsOffset)*1e12);
+                        detectionStats->RefinedPeakTimePicoseconds = (int32_t)((f_secondsOffsetFine - f_secondsOffset)*1e12);
                     }
                 }
             }
@@ -1214,9 +1294,9 @@ int32_t DPU_RangingDSP_process
                DPParams->numAdcSamples * sizeof(cmplx16ImRe_t) );
 
 
-        /*********************************
-         * Data Output
-         *********************************/
+        ///////////////////////////////////////
+        // Data Output
+        ///////////////////////////////////////
         outChannel = rangingObj->dataOutChan[0];
 
         uint32_t    radarCubeAddr;
@@ -1234,13 +1314,13 @@ int32_t DPU_RangingDSP_process
 
         //EDMA_startDmaTransfer(edmaHandle, outChannel);
 
-        /* Increment chirp count */
+        // Increment chirp count
         rangingObj->chirpCount++;
 
-        /* Last chirp , wait until EDMA is completed */
+        // Last chirp , wait until EDMA is completed
         if(rangingObj->chirpCount == DPParams->numChirpsPerFrame)
         {
-            /* Wait until last transfer is done */
+            // Wait until last transfer is done
             //rangingDSP_WaitEDMAComplete (  edmaHandle, outChannel);
             rangingObj->chirpCount = 0;
             outParams->endOfChirp = true;

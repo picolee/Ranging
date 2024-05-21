@@ -439,8 +439,8 @@ typedef struct DPC_Ranging_StaticCfg_t
     /*! @brief  Number of chirps per frame */
     uint16_t    numChirpsPerFrame;
 
-    /*! @brief   1 if valid profile has one Tx per chirp else 0 */
-    uint8_t     isValidProfileHasOneTxPerChirp;
+    /*! @brief  Gold Code PRN to receive */
+    uint16_t    rxPrn;
 
     /*! @brief  Flag that indicates if BPM is enabled. 
                 BPM can only be enabled/disabled during configuration time.*/
@@ -582,36 +582,8 @@ typedef struct DPC_Ranging_Stats_t
  */
 typedef struct DPC_Ranging_Data_t
 {
-    /*! @brief  boolean, true if code was detected */
-    uint8_t     wasCodeDetected;
-
-    /*! @brief  PRN of the code */
-    uint16_t    PRN;
-
-    /*! @brief  Index of prompt value */
-    uint16_t    promptIndex;
-
-    /*! @brief  prompt value */
-    uint32_t    promptValue;
-
-    /*! @brief  early value */
-    uint32_t    earlyValue;
-
-    /*! @brief  late value */
-    uint32_t    lateValue;
-
-    /*! @brief  amount that the early and late indices are offset from the prompt index */
-    uint8_t     eplOffset;
-
-    /*! @brief  Register value from TSCH  */
-    uint32_t    coarsePeakTimeHigh;
-
-    /*! @brief  Register value from TSCL  */
-    uint32_t    coarsePeakTimeLow;
-
-    /*! @brief  plus/minus correction applied to the coarse peak time
-     *          Units are picoseconds  */
-    int32_t     RefinedPeakTimePicoseconds;
+    // Contains early, prompt, late, offsets, PRN, etc
+    Ranging_PRN_Detection_Stats detectionStats;
 
     /*! @brief  Chirp start time from TSCH */
     int32_t     chirpStartTimeHigh;
@@ -699,6 +671,11 @@ typedef struct DPC_Ranging_ExecuteResultExportedInfo_t
  *        before issuing this IOCTL.
  */
 #define DPC_RANGING_IOCTL__STATIC_PRE_START_CFG                            (DPM_CMD_DPC_START_INDEX + 0U)
+
+/**
+ * @brief Command starts the sensor. Should be called after the sensor is configured in the MSS.
+ */
+#define DPC_RANGING_IOCTL_START_SENSOR                                      (DPM_CMD_DPC_START_INDEX + 1U)
 
 /**
  * @brief Command associated with @ref DPC_Ranging_PreStartCommonCfg_t. Must be issued before

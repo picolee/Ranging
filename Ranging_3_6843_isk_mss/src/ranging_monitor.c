@@ -41,14 +41,37 @@
 /**************************************************************************
  *************************** Include Files ********************************
  **************************************************************************/
+#include <xdc/runtime/System.h>
 #include <ti/common/sys_common.h>
 #include <ti/control/mmwavelink/mmwavelink.h>
+#include <ti/utils/mathutils/mathutils.h>
+
 #include <inc/ranging_monitor.h>
+#include <inc/ranging_mss.h>
+
+/**************************************************************************
+ **************************** Globals  ************************************
+ **************************************************************************/
+
+extern Ranging_MSS_MCB    gMmwMssMCB;
+
+/**************************************************************************
+ **************************** Defies  ************************************
+ **************************************************************************/
+
+/* These address offsets are in bytes, when configure address offset in hardware,
+   these values will be converted to number of 128bits
+   Buffer at offset 0x0U is reserved by BSS, hence offset starts from 0x800
+ */
+#define MMW_DEMO_CQ_SIGIMG_ADDR_OFFSET          0x800U
+#define MMW_DEMO_CQ_RXSAT_ADDR_OFFSET           0x1000U
+
+/* CQ data is at 16 bytes alignment for mulitple chirps */
+#define MMW_DEMO_CQ_DATA_ALIGNMENT            16U
 
 /**************************************************************************
  **************************** Local Functions *****************************
  **************************************************************************/
-
 
 /**************************************************************************
  **************************** Monitor Functions *****************************
@@ -192,4 +215,121 @@ int32_t ranging_cfgRxSaturationMonitor
 
 exit:
     return retVal;
+}
+
+
+
+/**
+ *  @b Description
+ *  @n
+ *      Function to configure CQ.
+ *
+ *  @param[in] subFrameCfg Pointer to sub-frame config
+ *  @param[in] numChirpsPerChirpEvent number of chirps per chirp event
+ *  @param[in] validProfileIdx valid profile index
+ *
+ *  @retval
+ *      0 if no error, else error (there will be system prints for these).
+ */
+int32_t Ranging_configCQ(Ranging_SubFrameCfg *subFrameCfg,
+                                uint8_t numChirpsPerChirpEvent,
+                                uint8_t validProfileIdx)
+{
+    Ranging_AnaMonitorCfg*      ptrAnaMonitorCfg;
+    ADCBuf_CQConf               cqConfig;
+    rlRxSatMonConf_t*           ptrSatMonCfg;
+    rlSigImgMonConf_t*          ptrSigImgMonCfg;
+    int32_t                     retVal;
+    uint16_t                    cqChirpSize;
+
+    /* Get analog monitor configuration */
+    ptrAnaMonitorCfg = &gMmwMssMCB.anaMonCfg;
+
+    /* Config mmwaveLink to enable Saturation monitor - CQ2 */
+    ptrSatMonCfg = &gMmwMssMCB.cqSatMonCfg[validProfileIdx];
+
+    if (ptrAnaMonitorCfg->rxSatMonEn)
+    {
+        if (ptrSatMonCfg->profileIndx != validProfileIdx)
+        {
+            System_printf ("Error: Saturation monitoring (globally) enabled but not configured for profile(%d)\n",
+                           validProfileIdx);
+            Ranging_debugAssert(0);
+        }
+
+        retVal = ranging_cfgRxSaturationMonitor(ptrSatMonCfg);
+        if(retVal != 0)
+        {
+            System_printf ("Error: rlRfRxIfSatMonConfig returns error = %d for profile(%d)\n",
+                           retVal, ptrSatMonCfg->profileIndx);
+            goto exit;
+        }
+    }
+
+    /* Config mmwaveLink to enable Saturation monitor - CQ1 */
+    ptrSigImgMonCfg = &gMmwMssMCB.cqSigImgMonCfg[validProfileIdx];
+
+    if (ptrAnaMonitorCfg->sigImgMonEn)
+    {
+        if (ptrSigImgMonCfg->profileIndx != validProfileIdx)
+        {
+            System_printf ("Error: Sig/Image monitoring (globally) enabled but not configured for profile(%d)\n",
+                           validProfileIdx);
+            Ranging_debugAssert(0);
+        }
+
+        retVal = ranging_cfgRxSigImgMonitor(ptrSigImgMonCfg);
+        if(retVal != 0)
+        {
+            System_printf ("Error: rlRfRxSigImgMonConfig returns error = %d for profile(%d)\n",
+                           retVal, ptrSigImgMonCfg->profileIndx);
+            goto exit;
+        }
+    }
+
+    retVal = ranging_cfgAnalogMonitor(ptrAnaMonitorCfg);
+    if (retVal != 0)
+    {
+        System_printf ("Error: rlRfAnaMonConfig returns error = %d\n", retVal);
+        goto exit;
+    }
+
+    if(ptrAnaMonitorCfg->rxSatMonEn || ptrAnaMonitorCfg->sigImgMonEn)
+    {
+        /* CQ driver config */
+        memset((void *)&cqConfig, 0, sizeof(ADCBuf_CQConf));
+        cqConfig.cqDataWidth = 0; /* 16bit for mmw demo */
+        cqConfig.cq1AddrOffset = MMW_DEMO_CQ_SIGIMG_ADDR_OFFSET; /* CQ1 starts from the beginning of the buffer */
+        cqConfig.cq2AddrOffset = MMW_DEMO_CQ_RXSAT_ADDR_OFFSET;  /* Address should be 16 bytes aligned */
+
+        retVal = ADCBuf_control(gMmwMssMCB.adcBufHandle, ADCBufMMWave_CMD_CONF_CQ, (void *)&cqConfig);
+        if (retVal < 0)
+        {
+            System_printf ("Error: MMWDemoDSS Unable to configure the CQ\n");
+            Ranging_debugAssert(0);
+        }
+    }
+
+    if (ptrAnaMonitorCfg->sigImgMonEn)
+    {
+        /* This is for 16bit format in mmw demo, signal/image band data has 2 bytes/slice
+           For other format, please check DFP interface document
+         */
+        cqChirpSize = (ptrSigImgMonCfg->numSlices + 1) * sizeof(uint16_t);
+        cqChirpSize = MATHUTILS_ROUND_UP_UNSIGNED(cqChirpSize, MMW_DEMO_CQ_DATA_ALIGNMENT);
+        subFrameCfg->sigImgMonTotalSize = cqChirpSize * numChirpsPerChirpEvent;
+    }
+
+    if (ptrAnaMonitorCfg->rxSatMonEn)
+    {
+        /* This is for 16bit format in mmw demo, saturation data has one byte/slice
+           For other format, please check DFP interface document
+         */
+        cqChirpSize = (ptrSatMonCfg->numSlices + 1) * sizeof(uint8_t);
+        cqChirpSize = MATHUTILS_ROUND_UP_UNSIGNED(cqChirpSize, MMW_DEMO_CQ_DATA_ALIGNMENT);
+        subFrameCfg->satMonTotalSize = cqChirpSize * numChirpsPerChirpEvent;
+    }
+
+exit:
+    return(retVal);
 }

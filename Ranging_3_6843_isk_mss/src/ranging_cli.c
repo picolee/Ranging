@@ -65,6 +65,7 @@
 #include <inc/ranging_adcconfig.h>
 #include <inc/ranging_rfparser.h>
 #include <inc/gold_code.h>
+#include <inc/state_machine.h>
 
 #ifdef SYS_COMMON_XWR68XX_LOW_POWER_MODE_EN
 /* Low Power Library Functions*/
@@ -130,204 +131,11 @@ extern void idle_power_cycle(IdleModeCfg   idleModeCfg);
  */
 static int32_t Ranging_CLISensorStart (int32_t argc, char* argv[])
 {
-    bool        doReconfig = true;
-    int32_t     retVal = 0;
-
-    /*  Only following command syntax will be supported 
-        sensorStart
-        sensorStart 0
-    */
-    if (argc == 2)
-    {
-        doReconfig = (bool) atoi (argv[1]);
-
-        if (doReconfig == true)
-        {
-            CLI_write ("Error: Reconfig is not supported, only argument of 0 is\n"
-                       "(do not reconfig, just re-start the sensor) valid\n");
-            return -1;
-        }
-    }
-    else
-    {
-        /* In case there is no argument for sensorStart, always do reconfig */
-        doReconfig = true;
-    }
-
-    /***********************************************************************************
-     * Do sensor state management to influence the sensor actions
-     ***********************************************************************************/
-
-    /* Error checking initial state: no partial config is allowed 
-       until the first sucessful sensor start state */
-    if ((gMmwMssMCB.sensorState == Ranging_SensorState_INIT) ||
-         (gMmwMssMCB.sensorState == Ranging_SensorState_OPENED))
-    {
-        MMWave_CtrlCfg ctrlCfg;
-
-        /* need to get number of sub-frames so that next function to check
-         * pending state can work */
-        CLI_getMMWaveExtensionConfig (&ctrlCfg);
-        gMmwMssMCB.objDetCommonCfg.preStartCommonCfg.numSubFrames =
-            Ranging_RFParser_getNumSubFrames(&ctrlCfg);
-
-        if (Ranging_isAllCfgInPendingState() == 0)
-        {
-            CLI_write ("Error: Full configuration must be provided before sensor can be started "
-                       "the first time\n");
-
-            /* Although not strictly needed, bring back to the initial value since we
-             * are rejecting this first time configuration, prevents misleading debug. */
-            gMmwMssMCB.objDetCommonCfg.preStartCommonCfg.numSubFrames = 0;
-
-            return -1;
-        }
-    }
-
-    if (gMmwMssMCB.sensorState == Ranging_SensorState_STARTED)
-    {
-        CLI_write ("Ignored: Sensor is already started\n");
-        return 0;
-    }
-
-    if (doReconfig == false)
-    {
-         /* User intends to issue sensor start without config, check if no
-            config was issued after stop and generate error if this is the case. */
-         if (Ranging_isAllCfgInNonPendingState() == 0)
-         {
-             /* Message user differently if all config was issued or partial config was
-                issued. */
-             if (Ranging_isAllCfgInPendingState())
-             {
-                 CLI_write ("Error: You have provided complete new configuration, "
-                            "issue \"sensorStart\" (without argument) if you want it to "
-                            "take effect\n");
-             }
-             else
-             {
-                 CLI_write ("Error: You have provided partial configuration between stop and this "
-                            "command and partial configuration cannot be undone."
-                            "Issue the full configuration and do \"sensorStart\" \n");
-             }
-             return -1;
-         }
-    }
-    else
-    {
-        /* User intends to issue sensor start with full config, check if all config
-           was issued after stop and generate error if  is the case. */
-        MMWave_CtrlCfg ctrlCfg;
-
-        /* need to get number of sub-frames so that next function to check
-         * pending state can work */
-        CLI_getMMWaveExtensionConfig (&ctrlCfg);
-        gMmwMssMCB.objDetCommonCfg.preStartCommonCfg.numSubFrames =
-            Ranging_RFParser_getNumSubFrames(&ctrlCfg);
-        
-        if (Ranging_isAllCfgInPendingState() == 0)
-        {
-            /* Message user differently if no config was issued or partial config was
-               issued. */
-            if (Ranging_isAllCfgInNonPendingState())
-            {
-                CLI_write ("Error: You have provided no configuration, "
-                           "issue \"sensorStart 0\" OR provide "
-                           "full configuration and issue \"sensorStart\"\n");
-            }
-            else
-            {
-                CLI_write ("Error: You have provided partial configuration between stop and this "
-                           "command and partial configuration cannot be undone."
-                           "Issue the full configuration and do \"sensorStart\" \n");
-            }
-            /* Although not strictly needed, bring back to the initial value since we
-             * are rejecting this first time configuration, prevents misleading debug. */
-            gMmwMssMCB.objDetCommonCfg.preStartCommonCfg.numSubFrames = 0;
-            return -1;
-        }
-    }
-
-    /***********************************************************************************
-     * Retrieve and check mmwave Open related config before calling openSensor
-     ***********************************************************************************/
-
-    /*  Fill demo's MCB mmWave openCfg structure from the CLI configs*/
-    if (gMmwMssMCB.sensorState == Ranging_SensorState_INIT)
-    {
-        /* Get the open configuration: */
-        CLI_getMMWaveExtensionOpenConfig (&gMmwMssMCB.cfg.openCfg);
-        /* call sensor open */
-        retVal = Ranging_openSensor(true);
-        if(retVal != 0)
-        {
-            return -1;
-        }
-        gMmwMssMCB.sensorState = Ranging_SensorState_OPENED;
-    }
-    else
-    {
-        /* openCfg related configurations like chCfg, lowPowerMode, adcCfg
-         * are only used on the first sensor start. If they are different
-         * on a subsequent sensor start, then generate a fatal error
-         * so the user does not think that the new (changed) configuration
-         * takes effect, the board needs to be reboot for the new
-         * configuration to be applied.
-         */
-        MMWave_OpenCfg openCfg;
-        CLI_getMMWaveExtensionOpenConfig (&openCfg);
-        /* Compare openCfg->chCfg*/
-        if(memcmp((void *)&gMmwMssMCB.cfg.openCfg.chCfg, (void *)&openCfg.chCfg,
-                          sizeof(rlChanCfg_t)) != 0)
-        {
-            Ranging_debugAssert(0);
-        }
-        
-        /* Compare openCfg->lowPowerMode*/
-        if(memcmp((void *)&gMmwMssMCB.cfg.openCfg.lowPowerMode, (void *)&openCfg.lowPowerMode,
-                          sizeof(rlLowPowerModeCfg_t)) != 0)
-        {
-            Ranging_debugAssert(0);
-        }
-        /* Compare openCfg->adcOutCfg*/
-        if(memcmp((void *)&gMmwMssMCB.cfg.openCfg.adcOutCfg, (void *)&openCfg.adcOutCfg,
-                          sizeof(rlAdcOutCfg_t)) != 0)
-        {
-            Ranging_debugAssert(0);
-        }
-    }
-
-    
-
-    /***********************************************************************************
-     * Retrieve mmwave Control related config before calling startSensor
-     ***********************************************************************************/
-    /* Get the mmWave ctrlCfg from the CLI mmWave Extension */
-    if(doReconfig)
-    {
-        /* if Ranging_openSensor has non-first time related processing, call here again*/
-        /* call sensor config */
-        CLI_getMMWaveExtensionConfig (&gMmwMssMCB.cfg.ctrlCfg);
-        retVal = Ranging_configSensor();
-        if(retVal != 0)
-        {
-            return -1;
-        }
-    }
-    retVal = Ranging_startSensor();
-    if(retVal != 0)
-    {
-        return -1;
-    }
-
-    /***********************************************************************************
-     * Set the state
-     ***********************************************************************************/
-    gMmwMssMCB.sensorState = Ranging_SensorState_STARTED;
+    CLI_write ("Error: unsupported command.\n");
     return 0;
 }
 
-int32_t Ranging_SetBaseConfiguration(float frequencyInGhz)
+int32_t Ranging_SetBaseConfiguration( )
 {
     // Set up a static argv large enough for the maximum expected arguments
     char* argv[15];
@@ -337,7 +145,7 @@ int32_t Ranging_SetBaseConfiguration(float frequencyInGhz)
     if (gMmwMssMCB.sensorState == Ranging_SensorState_STARTED)
     {
         CLI_write ("Ignored: This command is not allowed after sensor has started\n");
-        return 0;
+        return -1;
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -393,14 +201,17 @@ int32_t Ranging_SetBaseConfiguration(float frequencyInGhz)
     //<SampleSwap>           1       0-I in LSB, Q in MSB, 1-Q in LSB, I in MSB
     //<ChanInterleave>       1       0-interleaved(not supported on XWR16xx), 1- non-interleaved
     //<ChirpThreshold>       1       Chirp Threshold configuration used for ADCBUF buffer
-    argc = 3;
+    argc = 6;
     argv[0] = "adcbufCfg";
     argv[1] = "-1";             // subFrameIndex
     argv[2] = "0";              // Real
     argv[3] = "1";              // Q in LSB, I in MSB
     argv[4] = "1";              // non-interleaved
     argv[5] = "1";              // Chirp Threshold configuration used for ADCBUF buffer
-    Ranging_CLIADCBufCfg(argc, argv);
+    if(Ranging_CLIADCBufCfg(argc, argv))
+    {
+        return -2;
+    }
 
     //////////////////////////////////////////////////////////////////////////////////////////
     // Bit Phase Modulation     bpmCfg -1 0 0 0
@@ -414,7 +225,10 @@ int32_t Ranging_SetBaseConfiguration(float frequencyInGhz)
     argv[2] = "0";          // chirpEndIdx
     argv[3] = "0";          // numLoops
     argv[4] = "0";          // numFrames
-    Ranging_CLIBpmCfg(argc, argv);
+    if(Ranging_CLIBpmCfg(argc, argv))
+    {
+        return -3;
+    }
 
     //////////////////////////////////////////////////////////////////////////////////////////
     // Low Power Configuration     lowPower 0 0
@@ -442,7 +256,10 @@ int32_t Ranging_SetBaseConfiguration(float frequencyInGhz)
     argv[5] = "0";          // rangeAzimuthHeatMap
     argv[6] = "0";          // rangeDopplerHeatMap
     argv[7] = "1";          // statsInfo
-    Ranging_CLIGuiMonSel(argc, argv);
+    if(Ranging_CLIGuiMonSel(argc, argv))
+    {
+        return -4;
+    }
 
     ////////////////////////////////////////////////////////////////////////////////////////
     // LVDS config    lvdsStreamCfg -1 0 1 0
@@ -456,7 +273,10 @@ int32_t Ranging_SetBaseConfiguration(float frequencyInGhz)
     argv[2] = "0";          // enableHeader
     argv[3] = "1";          // dataFmt
     argv[4] = "0";          // enableSW
-    Ranging_CLILvdsStreamCfg(argc, argv);
+    if(Ranging_CLILvdsStreamCfg(argc, argv))
+    {
+        return -5;
+    }
 
     ////////////////////////////////////////////////////////////////////////////////////////
     // Chirp Quality Saturation Monitor    CQRxSatMonitor 0 3 5 121 0
@@ -472,7 +292,10 @@ int32_t Ranging_SetBaseConfiguration(float frequencyInGhz)
     argv[3] = "5";          // priSliceDuration
     argv[4] = "121";        // numSlices
     argv[5] = "0";          // rxChanMask
-    Ranging_CLIChirpQualityRxSatMonCfg(argc, argv);
+    if(Ranging_CLIChirpQualityRxSatMonCfg(argc, argv))
+    {
+        return -6;
+    }
 
     ////////////////////////////////////////////////////////////////////////////////////////
     // Chirp Quality SigImg Monitor   CQSigImgMonitor 0 127 4
@@ -484,7 +307,10 @@ int32_t Ranging_SetBaseConfiguration(float frequencyInGhz)
     argv[1] = "0";          // profile
     argv[2] = "127";        // numSlices
     argv[3] = "4";          // numSamplePerSlice
-    Ranging_CLIChirpQualitySigImgMonCfg(argc, argv);
+    if(Ranging_CLIChirpQualitySigImgMonCfg(argc, argv))
+    {
+        return -7;
+    }
 
     ////////////////////////////////////////////////////////////////////////////////////////
     // Analog Monitor   analogMonitor 0 0
@@ -494,7 +320,10 @@ int32_t Ranging_SetBaseConfiguration(float frequencyInGhz)
     argv[0] = "analogMonitor";
     argv[1] = "0";          // rxSaturation
     argv[2] = "0";          // sigImgBand
-    Ranging_CLIAnalogMonitorCfg(argc, argv);
+    if(Ranging_CLIAnalogMonitorCfg(argc, argv))
+    {
+        return -8;
+    }
 
 
     ////////////////////////////////////////////////////////////////////////////////////////
@@ -507,7 +336,10 @@ int32_t Ranging_SetBaseConfiguration(float frequencyInGhz)
     argv[1] = "0";          // save enable
     argv[2] = "0";          // restore enable
     argv[3] = "0";          // restore enable
-    Ranging_CLICalibDataSaveRestore(argc, argv);
+    if(Ranging_CLICalibDataSaveRestore(argc, argv))
+    {
+        return -9;
+    }
 
     return 0;
 }
@@ -534,10 +366,16 @@ int32_t Ranging_CreateReceiveConfiguration(float frequencyInGhz)
         ptrBaseCfgProfileHandle = &gMmwMssMCB.cfg.ctrlCfg.u.advancedFrameCfg.profileHandle[0U];
     }
 
+    // Check to see if a receive profile is already there
     if(ptrBaseCfgProfileHandle[RECEIVE_PROFILE_NUMBER] != NULL)
     {
-        System_printf("Error: Receive profile already set.\n");
-        Ranging_debugAssert (0);
+        // Delete the profile
+        // This also deletes all chirps associated with the profile
+        if (MMWave_delProfile (gMmwMssMCB.ctrlHandle, ptrBaseCfgProfileHandle[RECEIVE_PROFILE_NUMBER], &errCode))
+        {
+            /* Error: Unable to add the profile. Return the error code back */
+            return errCode;
+        }
     }
 
     /* Populate the profile configuration: */
@@ -620,7 +458,7 @@ int32_t Ranging_CreateReceiveConfiguration(float frequencyInGhz)
     return 0;
 }
 
-int32_t Ranging_ActivateReceiveConfiguration(float frequencyInGhz)
+int32_t Ranging_ActivateReceiveConfiguration()
 {
 
     /////////////////////////////////////////////////////////////////////////////////////////
@@ -840,11 +678,55 @@ static int32_t Ranging_CLISensorStop (int32_t argc, char* argv[])
 
     Ranging_stopSensor();
 
-    Ranging_resetStaticCfgPendingState();
-
     gMmwMssMCB.sensorState = Ranging_SensorState_STOPPED;
     return 0;
 }
+
+
+static int32_t Ranging_CLISensorStandby (int32_t argc, char* argv[])
+{
+    if ((gMmwMssMCB.sensorState == Ranging_SensorState_STOPPED) ||
+        (gMmwMssMCB.sensorState == Ranging_SensorState_INIT) ||
+        (gMmwMssMCB.sensorState == Ranging_SensorState_OPENED))
+    {
+        CLI_write ("Ignored: Sensor is already stopped\n");
+        return 0;
+    }
+
+    Send_State_Machine_Standby_Message();
+    return 0;
+}
+
+
+
+static int32_t Ranging_CLISensorReceive (int32_t argc, char* argv[])
+{
+    float frequencyInGhz;
+    uint16_t prn;
+
+    if(argc != 3)
+    {
+        frequencyInGhz  = 63.95;
+        prn             = (int8_t) (3);
+    }
+    else
+    {
+        /* Populate configuration: */
+        frequencyInGhz  = atof (argv[1]);
+        prn             = (int8_t) atoi (argv[2]);
+    }
+
+    // Set up the profile and chirps
+    Configure_State_Machine_Receive( frequencyInGhz, prn );
+
+    // Set the active frame to include the correct profile and chirps
+    Activate_State_Machine_Receive_Cfg();
+
+    // Configure the sensor, configure the data path, and then start the sensor
+    Begin_State_Machine_Receive_Start_Code();
+    return 0;
+}
+
 
 /**
  *  @b Description
@@ -1418,7 +1300,7 @@ void Ranging_CLIInit (uint8_t taskPriority)
     /* Create Demo Banner to be printed out by CLI */
     sprintf(&demoBanner[0], 
                        "******************************************\n" \
-                       "xWR68xx MMW Demo %02d.%02d.%02d.%02d\n"  \
+                       "xWR68xx Ranging %02d.%02d.%02d.%02d\n"  \
                        "******************************************\n", 
                         MMWAVE_SDK_VERSION_MAJOR,
                         MMWAVE_SDK_VERSION_MINOR,
@@ -1514,6 +1396,17 @@ void Ranging_CLIInit (uint8_t taskPriority)
     cnt++;
 #endif /* SYS_COMMON_XWR68XX_LOW_POWER_MODE_EN */
 
+
+    cliCfg.tableEntry[cnt].cmd            = "standby";
+    cliCfg.tableEntry[cnt].helpString    = "";
+    cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLISensorStandby;
+    cnt++;
+
+    cliCfg.tableEntry[cnt].cmd            = "runRx";
+    cliCfg.tableEntry[cnt].helpString    = "<frequemcyInGhz><prn>";
+    cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLISensorReceive;
+    cnt++;
+
     /* Open the CLI: */
     if (CLI_open (&cliCfg) < 0)
     {
@@ -1585,8 +1478,6 @@ static int32_t Ranging_CLIIdleModeCycle (int32_t argc, char* argv[])
 
       Ranging_stopSensor();
 
-      Ranging_resetStaticCfgPendingState();
-
       gMmwMssMCB.sensorState = Ranging_SensorState_STOPPED;
 
 
@@ -1657,8 +1548,6 @@ static int32_t Ranging_CLIIdleModeDown (int32_t argc, char* argv[])
       }
 
       Ranging_stopSensor();
-
-      Ranging_resetStaticCfgPendingState();
 
       gMmwMssMCB.sensorState = Ranging_SensorState_STOPPED;
 

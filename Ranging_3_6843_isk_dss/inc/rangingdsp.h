@@ -372,6 +372,9 @@ typedef struct DPU_RangingDSP_StaticConfig_t
 
     /*! @brief      Pointer to ADC buffer interface */
     DPIF_ADCBufData     ADCBufData;
+
+    /*! @brief  Gold Code PRN to receive */
+    uint16_t    rxPrn;
 }DPU_RangingDSP_StaticConfig;
 
 /**

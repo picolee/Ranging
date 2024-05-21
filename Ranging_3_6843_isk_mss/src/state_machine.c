@@ -46,15 +46,17 @@
 #include <inc/state_machine.h>
 #include <inc/state_machine_definitions.h>
 #include <inc/state_machine_functions.h>
+#include <ti/utils/cycleprofiler/cycle_profiler.h>
 
 /* ----------------------------------------------------------------------------------------------------------------- *
  *                                                  Global Variables
  * ----------------------------------------------------------------------------------------------------------------- */
 
-extern State_Information_Ptr_t g_ptr_Current_State_Info;
-
-extern const char *  message_to_string_table[STATE_MACHINE_MSG_TOTAL_COUNT];
+extern const char *  message_to_string_table[SM_MSG_TOTAL_COUNT];
 extern const char *  state_to_string_table[STATE_TOTAL_COUNT];
+
+extern State_Information_Ptr_t State_Machine_States;
+extern StateMachine_t State_Machine;
 
 
 /* ----------------------------------------------------------------------------------------------------------------- *
@@ -65,111 +67,228 @@ extern const char *  state_to_string_table[STATE_TOTAL_COUNT];
  *                                                   Local Function Declarations
  * ----------------------------------------------------------------------------------------------------------------- */
 
-void Define_HAICU_State_Machines(void);
+void State_Machine_Entry_Point(StateMachine_t *p_stateMachine,
+                               State_Information_t *p_state_array,
+                               uint16_t totalStates,
+                               uint8_t taskPriority,
+                               UART_Handle uart);
 void State_Machine_Thread_Start(UArg arg0, UArg arg1);
 
 /* ----------------------------------------------------------------------------------------------------------------- *
  *                                                   External Functions
  * ----------------------------------------------------------------------------------------------------------------- */
 
-void State_Machine_Init(uint8_t taskPriority, Task_Handle* stateMachineTask)
+//void State_Machine_Init(uint8_t taskPriority, Task_Handle* stateMachineTask)
+//{
+//
+//    // Create a Mailbox instance */
+//    Mailbox_Params mbxParams;
+//    Mailbox_Params_init(&mbxParams);
+//    mbxParams.buf     = (Ptr)mailboxBuffer;
+//    mbxParams.bufSize = sizeof(mailboxBuffer);
+//    Mailbox_construct(&mbxStruct, sizeof(MsgObj), NUMMSGS, &mbxParams, NULL);
+//    mbxHandle = Mailbox_handle(&mbxStruct);
+//
+//    // Configure state machine and operating system objects
+//    // Completed, Failed, Cancelled
+//    Define_Global_States();
+//
+//    // Main State Machine
+//    Define_State_Machine();
+//
+//    Configure_Initial_State_To_Standby();
+//
+//    // Create thread
+//    Task_Params         taskParams;
+//    Task_Params_init(&taskParams);
+//    taskParams.priority  = taskPriority;
+//    taskParams.stackSize = 4*1024;
+//    *stateMachineTask = Task_create(State_Machine_Thread_Start, &taskParams, NULL);
+//
+//    Send_State_Machine_Init_Message();
+//}
+
+void State_Machine_Init(uint8_t taskPriority, UART_Handle uart)
 {
-    /* create threads */
-    Task_Params         taskParams;
-    Task_Params_init(&taskParams);
-    taskParams.priority  = taskPriority;
-    taskParams.stackSize = 4*1024;
-    *stateMachineTask = Task_create(State_Machine_Thread_Start, &taskParams, NULL);
-
-    // Create a Mailbox instance */
-    Mailbox_Params mbxParams;
-    Mailbox_Params_init(&mbxParams);
-    mbxParams.buf     = (Ptr)mailboxBuffer;
-    mbxParams.bufSize = sizeof(mailboxBuffer);
-    Mailbox_construct(&mbxStruct, sizeof(MsgObj), NUMMSGS, &mbxParams, NULL);
-    mbxHandle = Mailbox_handle(&mbxStruct);
-
-    // Configure state machine and operating system objects
-    // Completed, Failed, Cancelled
-    Define_Global_States();
-
-    // Main State Machine
+    // Define all of the states and string tables for the main state machine
     Define_State_Machine();
 
+    // Initialize the state machine mailboxes and thread
+    State_Machine_Entry_Point(&State_Machine, &(State_Machine_States[0]), STATE_TOTAL_COUNT, taskPriority, uart);
+
+    Send_State_Machine_Init_Message();
 }
+
+// This is a generalized entry point that allows creation of multiple state machines, each running in their own thread
+void State_Machine_Entry_Point(StateMachine_Ptr_t p_stateMachine,
+                               State_Information_Ptr_t p_state_array,
+                               uint16_t totalStates,
+                               uint8_t taskPriority,
+                               UART_Handle uart)
+{
+    p_stateMachine->states = p_state_array;
+    p_stateMachine->totalStates = totalStates;
+    p_stateMachine->currentState = &p_state_array[0]; // Assuming the first state is the initial state
+    p_stateMachine->uartHandle = uart;
+
+    Mailbox_Params mbxParams;
+    Mailbox_Params_init(&mbxParams);
+    mbxParams.buf = (Ptr)mailboxBuffer;
+    mbxParams.bufSize = sizeof(mailboxBuffer);
+    Mailbox_construct(&p_stateMachine->mbxStruct, sizeof(MsgObj), NUMMSGS, &mbxParams, NULL);
+    p_stateMachine->mbxHandle = Mailbox_handle(&p_stateMachine->mbxStruct);
+
+    Task_Params_init(&p_stateMachine->taskParams);
+    p_stateMachine->taskParams.priority = taskPriority;
+    p_stateMachine->taskParams.stackSize = 4 * 1024;
+    p_stateMachine->taskParams.arg0 = (UArg)p_stateMachine;
+    p_stateMachine->taskHandle = Task_create(State_Machine_Thread_Start, &p_stateMachine->taskParams, NULL);
+}
+
+
 
 /* ----------------------------------------------------------------------------------------------------------------- *
  *                                                   Helper Functions
  * ----------------------------------------------------------------------------------------------------------------- */
 void State_Machine_Thread_Start(UArg arg0, UArg arg1)
 {
-  State_Information_Ptr_t newStateInformation;
-  MsgObj msg;
-  uint16_t state_machine_transition_message_id;
+    StateMachine_t *sm = (StateMachine_t *)arg0;
+    State_Information_Ptr_t newStateInformation;
+    MsgObj msg;
+    uint16_t state_machine_transition_message_id;
+    uint32_t timeTSCL;
 
-  while ( 1 )
-  {
-    // Wait forever until we receive a flag
-    if (
-        g_ptr_Current_State_Info->stateNumber >= STATE_TOTAL_COUNT &&
-        g_ptr_Current_State_Info->stateNumber != g_Completed_State_info.stateNumber &&
-        g_ptr_Current_State_Info->stateNumber != g_Failed_State_info.stateNumber &&
-        g_ptr_Current_State_Info->stateNumber != g_Cancelled_State_info.stateNumber)
+    while ( 1 )
     {
-        System_printf( "State %u higher than STATE_TOTAL_COUNT: %u", g_ptr_Current_State_Info->stateNumber, STATE_TOTAL_COUNT);
+        timeTSCL = Cycleprofiler_getTimeStamp();
+
+        // Wait forever until we receive a flag
+        if ( sm->currentState->stateNumber >= STATE_TOTAL_COUNT )
+        {
+            System_printf( "State %u higher than STATE_TOTAL_COUNT: %u", sm->currentState->stateNumber, STATE_TOTAL_COUNT);
+        }
+        else
+        {
+//            System_printf( "%s wait: %u\n",
+//                           state_to_string_table[sm->currentState->stateNumber],
+//                           timeTSCL);
+//            CLI_write ("%s wait: %u\n",
+//                       state_to_string_table[sm->currentState->stateNumber],
+//                       timeTSCL);
+        }
+
+        Mailbox_pend(State_Machine.mbxHandle, &msg, BIOS_WAIT_FOREVER);
+
+        state_machine_transition_message_id = msg.id;
+
+        switch( state_machine_transition_message_id )
+        {
+          default:
+            break;
+        }
+
+        // Use the event_flag as a key in the state transition table to find the next state
+        newStateInformation = sm->currentState->stateTransitionTable[ state_machine_transition_message_id ];
+
+        // A NULL Ptr means that the event does not lead to a state transition.
+        if (newStateInformation == NULL)
+        {
+              // Call Service_Null_Event to execute generic behavior that occurs whenever we receive an invalid event
+              Service_Null_Message( state_machine_transition_message_id );
+        }
+        else
+        {
+            if(newStateInformation->stateExecutionFunction == NULL)
+            {
+                System_printf( "ERROR: NULL function pointer.\n");
+            }
+            else
+            {
+                // Call Leaving_Phase to execute generic behavior that occurs whenever we leave a phase
+                Leaving_State( sm->currentState );
+
+                // Update the current phase information
+                newStateInformation->previousStateInfo_ptr = sm->currentState;
+                sm->currentState = newStateInformation;
+
+                // Call Entering_Phase to execute generic behavior that occurs whenever we enter a new phase
+                Entering_State( sm->currentState );
+
+                // Enter the next phase
+                sm->currentState->stateExecutionFunction( sm->currentState );
+            }
+        }
     }
-    else
-    {
-        System_printf( "State %u: %s waiting\n",
-          g_ptr_Current_State_Info->stateNumber,
-          state_to_string_table[g_ptr_Current_State_Info->stateNumber]);
-    }
-
-    Mailbox_pend(mbxHandle, &msg, BIOS_WAIT_FOREVER);
-
-    state_machine_transition_message_id = msg.id;
-
-    switch( state_machine_transition_message_id )
-    {
-      default:
-        break;
-    }
-
-    // Use the event_flag as a key in the state transition table to find the next state
-    newStateInformation = g_ptr_Current_State_Info->stateTransitionTable[ state_machine_transition_message_id ];
-
-    // A NULL Ptr means that the event does not lead to a state transition.
-    if (newStateInformation == NULL)
-    {
-      // Call Service_Null_Event to execute generic behavior that occurs whenever we receive an invalid event
-      Service_Null_Message( state_machine_transition_message_id );
-    }
-    else
-    {
-      if(newStateInformation->stateExecutionFunction == NULL)
-      {
-          System_printf( "ERROR: NULL function pointer.\n");
-      }
-      else
-      {
-        // Call Leaving_Phase to execute generic behavior that occurs whenever we leave a phase
-        Leaving_State( g_ptr_Current_State_Info );
-
-        // Update the current phase information
-        newStateInformation->previousStateInfo_ptr = g_ptr_Current_State_Info;
-        g_ptr_Current_State_Info = newStateInformation;
-
-        // Call Entering_Phase to execute generic behavior that occurs whenever we enter a new phase
-        Entering_State( g_ptr_Current_State_Info );
-
-        // Enter the next phase
-        g_ptr_Current_State_Info->stateExecutionFunction( g_ptr_Current_State_Info );
-      }
-    }
-  }
 }
 
-void Define_State_Machines( void )
+void Begin_State_Machine_Receive_Start_Code()
 {
+    Send_State_Machine_Message( SM_MSG_RX_START_CODE );
 }
 
+void Configure_State_Machine_Receive( float frequencyInGhz, uint16_t prn )
+{
+    uint16_t index;
+    for(index = 0; index < STATE_TOTAL_COUNT; index++)
+    {
+        State_Machine_States[index].rxPrn = prn;
+        State_Machine_States[index].rxFrequencyInGhz = frequencyInGhz;
+    }
+    Send_State_Machine_Message( SM_MSG_CFG_RX );
+}
+
+void Activate_State_Machine_Receive_Cfg( )
+{
+    Send_State_Machine_Message( SM_MSG_ACTIVATE_RX_CFG );
+}
+
+void Configure_State_Machine_Transmit( float frequencyInGhz, uint16_t prn )
+{
+    uint16_t index;
+    for(index = 0; index < STATE_TOTAL_COUNT; index++)
+    {
+        State_Machine_States[index].txPrn = prn;
+        State_Machine_States[index].txFrequencyInGhz = frequencyInGhz;
+    }
+    Send_State_Machine_Message( SM_MSG_CFG_TX );
+}
+
+void Activate_State_Machine_Transmit_Cfg()
+{
+    Send_State_Machine_Message( SM_MSG_ACTIVATE_TX_CFG );
+}
+
+void Begin_State_Machine_Transmit_Start_Code()
+{
+    Send_State_Machine_Message( SM_MSG_TX_START_CODE );
+}
+
+void Begin_State_Machine_Transmit_Response_Code()
+{
+    Send_State_Machine_Message( SM_MSG_TX_RESPONSE_CODE );
+}
+
+void Send_State_Machine_Standby_Message( )
+{
+    Send_State_Machine_Message( SM_MSG_STANDBY );
+}
+
+void Send_State_Machine_Init_Message( )
+{
+    Send_State_Machine_Message( SM_MSG_INIT );
+}
+
+void Send_Code_Detect_Message( )
+{
+    Send_State_Machine_Message( SM_MSG_CODE_DETECT );
+}
+
+void Send_No_Code_Detect_Message( )
+{
+    Send_State_Machine_Message( SM_MSG_NO_CODE_DETECT );
+}
+
+void Send_Transmit_Complete_Message()
+{
+    Send_State_Machine_Message( SM_MSG_TX_COMPLETE );
+}

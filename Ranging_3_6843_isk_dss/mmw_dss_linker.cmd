@@ -11,6 +11,7 @@ SECTIONS
     .dpc_l1Heap  : { } > L1DSRAM
     .dpc_l2Heap: { } >> L2SRAM_UMAP0 | L2SRAM_UMAP1
     .demoSharedMem: { } >> HSRAM
+    .l1pcode:{ } > L1PSRAM
 }
 /*----------------------------------------------------------------------------*/
 

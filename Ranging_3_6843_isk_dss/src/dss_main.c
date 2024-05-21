@@ -84,6 +84,8 @@
 #include <inc/ranging_dss.h>
 #include <inc/ranging_res.h>
 
+#include<inc/countdown_timer.h>
+
 /* Demo Profiling Include Files */
 #include <ti/utils/cycleprofiler/cycle_profiler.h>
 
@@ -92,8 +94,10 @@
  */
 #define RANGING_DPC_OBJDET_DPM_TASK_PRIORITY      5
 
-/*! L3 RAM buffer for object detection DPC */
-uint8_t gMmwL3[SOC_L3RAM_SIZE];
+/*! L3 RAM buffer for results */
+// A chunk is reserved for the twiddle factor, precalculated in "computed_twiddle_factor.h"
+#define RANGING_OBJDET_L3RAM_SIZE (SOC_L3RAM_SIZE - 16U * 1024U)
+uint8_t gMmwL3[RANGING_OBJDET_L3RAM_SIZE];
 #pragma DATA_SECTION(gMmwL3, ".l3ram");
 
  /*! L2 RAM buffer for object detection DPC */
@@ -616,6 +620,7 @@ static int32_t Ranging_copyResultToHSRAM
  *  @retval
  *      Not Applicable.
  */
+#include <ti/alg/mmwavelib/src/fft/mmwavelib_fft.h>
 static void Ranging_DPC_Ranging_dpmTask(UArg arg0, UArg arg1)
 {
     int32_t     retVal;
@@ -626,7 +631,8 @@ static void Ranging_DPC_Ranging_dpmTask(UArg arg0, UArg arg1)
     {
         /* Execute the DPM module: */
         retVal = DPM_execute (gMmwDssMCB.dataPathObj.objDetDpmHandle, &resultBuffer);
-        if (retVal < 0) {
+        if (retVal < 0)
+        {
             System_printf ("Error: DPM execution failed [Error code %d]\n", retVal);
             Ranging_debugAssert (0);
         }
@@ -691,16 +697,16 @@ static void Ranging_dssInitTask(UArg arg0, UArg arg1)
      * Driver Init:
      *****************************************************************************/
 
-    /* Initialize the Mailbox */
+    // Initialize the Mailbox
     Mailbox_init(MAILBOX_TYPE_DSS);
 
-    /*****************************************************************************
-     * Driver Open/Configuraiton:
-     *****************************************************************************/
-    /* Initialize EDMA */
+    //*****************************************************************************
+    //* Driver Open/Configuraiton:
+    //*****************************************************************************
+    // Initialize EDMA
     Ranging_edmaInit(&gMmwDssMCB.dataPathObj, DPC_RANGING_DSP_EDMA_INSTANCE);
 
-    /* Use instance 1 on DSS */
+    // Use instance 1 on DSS
     Ranging_edmaOpen(&gMmwDssMCB.dataPathObj, DPC_RANGING_DSP_EDMA_INSTANCE);
 
     /*****************************************************************************

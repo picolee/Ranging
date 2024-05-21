@@ -166,13 +166,6 @@ typedef struct Ranging_Cfg_t
  */
 typedef struct Ranging_DPC_ObjDet_CommonCfg_t
 {
-    /*! @brief Flag indicating if new MeasureRxChannelBiasCfg configuration is
-     *         pending issuance to DPC */
-    uint8_t isMeasureRxChannelBiasCfgPending : 1;
-
-    /*! @brief Flag indicating if new CompRxChannelBiasCfg configuration is
-     *         pending issuance to DPC */
-    uint8_t isCompRxChannelBiasCfgPending    : 1;
 
     /*! @brief pre start common config */
     DPC_Ranging_PreStartCommonCfg   preStartCommonCfg;

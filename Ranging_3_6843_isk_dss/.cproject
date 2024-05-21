@@ -43,6 +43,7 @@
 								<option id="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.DIAG_WRAP.1698974754" name="Wrap diagnostic messages (--diag_wrap) [deprecated]" superClass="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.DIAG_WRAP" useByScannerDiscovery="false" value="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.DIAG_WRAP.off" valueType="enumerated"/>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.INCLUDE_PATH.798683624" name="Add dir to #include search path (--include_path, -I)" superClass="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.INCLUDE_PATH" valueType="includePath">
 									<listOptionValue builtIn="false" value="${COM_TI_BIOS_INCLUDE_PATH}"/>
+									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/src"/>
 									<listOptionValue builtIn="false" value="${COM_TI_MMWAVE_SDK_INCLUDE_PATH}"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}"/>
 									<listOptionValue builtIn="false" value="${COM_TI_MMWAVE_SDK_INSTALL_DIR}/packages"/>
@@ -70,7 +71,7 @@
 								</option>
 								<option id="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.OPT_FOR_SPEED.1403440318" name="Speed vs. size trade-offs (--opt_for_speed, -mf)" superClass="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.OPT_FOR_SPEED" useByScannerDiscovery="false" value="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.OPT_FOR_SPEED.3" valueType="enumerated"/>
 								<option id="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.GEN_FUNC_SUBSECTIONS.1163255207" name="Place each function in a separate subsection (--gen_func_subsections, -mo)" superClass="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.GEN_FUNC_SUBSECTIONS" useByScannerDiscovery="false" value="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.GEN_FUNC_SUBSECTIONS.on" valueType="enumerated"/>
-								<option id="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.OPT_LEVEL.72125703" name="Optimization level (--opt_level, -O)" superClass="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.OPT_LEVEL" useByScannerDiscovery="false" value="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.OPT_LEVEL.0" valueType="enumerated"/>
+								<option id="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.OPT_LEVEL.72125703" name="Optimization level (--opt_level, -O)" superClass="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.OPT_LEVEL" useByScannerDiscovery="false" value="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.OPT_LEVEL.3" valueType="enumerated"/>
 								<option id="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.GCC.632963815" name="Enable support for GCC extensions (--gcc) [deprecated]" superClass="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.GCC" useByScannerDiscovery="false" value="true" valueType="boolean"/>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.DIAG_ERROR.1715701339" name="Treat diagnostic &lt;id&gt; as error (--diag_error, -pdse)" superClass="com.ti.ccstudio.buildDefinitions.C6000_8.3.compilerID.DIAG_ERROR" useByScannerDiscovery="false" valueType="stringList">
 									<listOptionValue builtIn="false" value="10015"/>
@@ -95,6 +96,7 @@
 								<option id="com.ti.ccstudio.buildDefinitions.C6000_8.3.linkerID.DIAG_WRAP.429092294" name="Wrap diagnostic messages (--diag_wrap) [deprecated]" superClass="com.ti.ccstudio.buildDefinitions.C6000_8.3.linkerID.DIAG_WRAP" useByScannerDiscovery="false" value="com.ti.ccstudio.buildDefinitions.C6000_8.3.linkerID.DIAG_WRAP.off" valueType="enumerated"/>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.ti.ccstudio.buildDefinitions.C6000_8.3.linkerID.SEARCH_PATH.130763065" name="Add &lt;dir&gt; to library search path (--search_path, -i)" superClass="com.ti.ccstudio.buildDefinitions.C6000_8.3.linkerID.SEARCH_PATH" valueType="libPaths">
 									<listOptionValue builtIn="false" value="${COM_TI_BIOS_LIBRARY_PATH}"/>
+									<listOptionValue builtIn="false" value="${PROJECT_ROOT}/src"/>
 									<listOptionValue builtIn="false" value="${COM_TI_MMWAVE_SDK_LIBRARY_PATH}"/>
 									<listOptionValue builtIn="false" value="${CG_TOOL_ROOT}/lib"/>
 									<listOptionValue builtIn="false" value="${PROJECT_ROOT}"/>

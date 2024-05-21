@@ -90,8 +90,17 @@ typedef struct rangingDSPObj_t
     /*! @brief      The Gold code number of bits */
     uint16_t                gold_code_n;
 
-    /*! @brief      The Gold code sequence number. There are 2^N+1 Gold codes */
-    uint16_t                gold_code_prn;
+    /*! @brief      The Gold code sequence number used for receive. There are 2^N+1 Gold codes */
+    uint16_t                rxPrn;
+
+    /*! @brief      The Gold code sequence number used for receive. There are 2^N+1 Gold codes */
+    uint16_t                txPrn;
+
+    /*! @brief      The index of the first non-zero bit in the gold code. Used for signal and noise calculations */
+    uint16_t                firstGoldCodeNonZeroIndex;
+
+    /*! @brief      The index of the last non-zero bit in the gold code. Used for signal and noise calculations */
+    uint16_t                lastGoldCodeNonZeroIndex;
 
     /*! @brief      Chirp counter modulo number of chirps per frame */
     uint16_t                chirpCount;

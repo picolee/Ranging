@@ -471,7 +471,6 @@ static int32_t Ranging_RFParser_parseCtrlConfig
         // Hard coded
         outParams->numTxAntennas = 0;
         outParams->numVirtualAntennas = 0;
-        outParams->validProfileHasOneTxPerChirp = 0;
 
         /* found valid chirps for the frame; set remaining parameters */
         if (foundValidProfile == true) {
