@@ -285,6 +285,9 @@ typedef struct Ranging_TaskHandles_t
 
     /*! @brief   Task to run the state machine */
     Task_Handle stateMachineTask;
+
+    /*! @brief   Task to communicate with the DSS */
+    Task_Handle dssMailboxTask;
 } Ranging_taskHandles;
 
 /*!
@@ -463,6 +466,12 @@ typedef struct Ranging_MSS_MCB_t
 
     /*! @brief   Semaphore handle to signal DPM ioctl from DPM report function. */
     Semaphore_Handle            DPMioctlSemHandle;
+
+    /*! @brief   Semaphore handle to signal DSS mailbox read from Mailbox read callback. */
+    Semaphore_Handle            dssMboxSemHandle;
+
+    /*! @brief   Maiblox handle to communicate with DSS. */
+    Mbox_Handle                 peerMailbox;
 
     /*! @brief    Sensor state */
     Ranging_SensorState         sensorState;

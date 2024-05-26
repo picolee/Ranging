@@ -8,6 +8,9 @@
 #ifndef INC_RANGING_DPC_INTERFACE_H_
 #define INC_RANGING_DPC_INTERFACE_H_
 
+#include <stdint.h>
+#include <ti/control/dpm/dpm.h>
+
 int32_t Ranging_dataPathConfig (uint16_t rxPrn);
 int32_t Ranging_DPM_ioctl_blocking
 (

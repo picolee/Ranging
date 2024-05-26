@@ -20,6 +20,7 @@
 #include <inc/ranging_rfparser.h>
 #include <inc/ranging_dpc.h>
 #include <inc/state_machine.h>
+#include <inc/ranging_dpc_interface.h>
 
 
 extern Ranging_MSS_MCB    gMmwMssMCB;
@@ -31,13 +32,6 @@ extern void Ranging_transferLVDSUserData(uint8_t subFrameIndx,
 
 static uint8_t Ranging_getPrevSubFrameIndx(uint8_t currentIndx, uint8_t numSubFrames);
 static uint8_t Ranging_getNextSubFrameIndx(uint8_t currentIndx, uint8_t numSubFrames);
-static int32_t Ranging_DPM_ioctl_blocking
-(
-    DPM_Handle handle,
-    uint32_t cmd,
-    void* arg,
-    uint32_t argLen
-);
 
 static void Ranging_transmitProcessedOutput
 (
@@ -1275,7 +1269,7 @@ static void Ranging_transmitProcessedOutput
  *      Success         -0
  *      Failed          <0
  */
-static int32_t Ranging_DPM_ioctl_blocking
+int32_t Ranging_DPM_ioctl_blocking
 (
     DPM_Handle handle,
     uint32_t cmd,

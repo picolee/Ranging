@@ -11,7 +11,9 @@
 
 #include <inc/state_machine_definitions.h>
 #include <inc/state_machine_functions.h>
+#include <inc/ranging_dpc_interface.h>
 #include <inc/ranging_mss.h>                // For Ranging_debugAssert
+#include <shared/ranging_mailbox.h>         // For interprocess communications with the DSP core
 #include <stdio.h>
 #include <ti/utils/cli/cli.h>
 
@@ -36,6 +38,7 @@ extern int32_t Ranging_ActivateTransmitConfiguration(float frequencyInGhz);
 
 // From mss_main.c
 extern int32_t Ranging_dataPathConfig (uint16_t rxPrn);
+extern void Ranging_dataPathStart (void);
 extern Ranging_MSS_MCB    gMmwMssMCB;
 
 /* ----------------------------------------------------------------------------------------------------------------- *
@@ -48,17 +51,34 @@ char logString[128];
 // Define generic behavior that occurs whenever we receive an invalid event
 void Service_Null_Message( uint16_t message_id )
 {
-    System_printf( "NULL msg %u %s received for state %u\n",
+    System_printf( "NULL msg %u %s received for state %u\r\n",
                    message_id,
                    message_to_string_table[message_id],
                    State_Machine.currentState->stateNumber );
+}
+
+void Log_To_Uart(State_Information_Ptr_t p_stateInfo, const char* format, ...)
+{
+    // Make sure we're not in an ISR
+    if(BIOS_getThreadType() == BIOS_ThreadType_Task)
+    {
+        if (p_stateInfo->stateMachine->uartHandle != NULL)
+        {
+            va_list args;
+            va_start(args, format);
+            vsnprintf(logString, sizeof(logString), format, args);
+            va_end(args);
+
+            UART_writePolling(p_stateInfo->stateMachine->uartHandle, (uint8_t*)logString, strlen(logString));
+        }
+    }
 }
 
 // Define generic behavior that occurs whenever we receive an invalid event
 void Format_Error_String( char * error )
 {
     snprintf(errorString, sizeof(errorString),
-             "Error:%s in state %u\n",
+             "Error:%s in state %u\r\n",
              error,
              State_Machine.currentState->stateNumber );
 }
@@ -70,23 +90,10 @@ void Send_State_Machine_Message( uint16_t message_id )
         // Make sure we're not in an ISR
         if(BIOS_getThreadType() == BIOS_ThreadType_Task)
         {
-          System_printf( "State %u higher than STATE_TOTAL_COUNT: %u\n",
-            State_Machine.currentState->stateNumber,
-            STATE_TOTAL_COUNT);
-        }
-        else
-        {
-          Ranging_debugAssert (0);
-        }
-    }
-    else if ( State_Machine.currentState->stateNumber >= STATE_TOTAL_COUNT )
-    {
-        // Make sure we're not in an ISR
-        if(BIOS_getThreadType() == BIOS_ThreadType_Task)
-        {
-          System_printf( "State %u higher than STATE_TOTAL_COUNT: %u\n",
-            State_Machine.currentState->stateNumber,
-            STATE_TOTAL_COUNT);
+            Log_To_Uart(State_Machine.currentState,
+                        "State %u higher than STATE_TOTAL_COUNT: %u\r\n",
+                        State_Machine.currentState->stateNumber,
+                        STATE_TOTAL_COUNT);
         }
         else
         {
@@ -96,14 +103,13 @@ void Send_State_Machine_Message( uint16_t message_id )
     else
     {
         // Make sure we're not in an ISR
-        if(BIOS_getThreadType() == BIOS_ThreadType_Task)
-        {
-//          System_printf( "State %u: %s sent msg %u %s\n",
-//            State_Machine.currentState->stateNumber,
-//            state_to_string_table[State_Machine.currentState->stateNumber],
-//                         message_id,
-//                         message_to_string_table[message_id] );
-        }
+//        if(BIOS_getThreadType() == BIOS_ThreadType_Task)
+//        {
+//            Log_To_Uart(State_Machine.currentState,
+//                        "\t\t%s\tsent\t%s\r\n",
+//                        state_to_string_table[State_Machine.currentState->stateNumber],
+//                        message_to_string_table[message_id]);
+//        }
     }
 
     MsgObj msg;
@@ -125,54 +131,26 @@ void Send_State_Machine_Message( uint16_t message_id )
 
 void Leaving_State( State_Information_Ptr_t p_stateInfo )
 {
-//    System_printf( "End\t%s\n",
-//                   state_to_string_table[p_stateInfo->stateNumber] );
-//    CLI_write ("End\t%s\n",
-//               state_to_string_table[p_stateInfo->stateNumber]);
-
-    if(p_stateInfo->stateMachine->uartHandle != NULL)
-    {
-        snprintf(logString,
-                 sizeof(logString),
-                 "End\t%s\n",
-                 state_to_string_table[p_stateInfo->stateNumber]);
-
-        UART_writePolling (p_stateInfo->stateMachine->uartHandle,
-                           (uint8_t*)&logString,
-                           strlen(logString));
-    }
+    Log_To_Uart(p_stateInfo,
+                "End\t%s\r\n",
+                state_to_string_table[p_stateInfo->stateNumber]);
 }
 
 void Entering_State( State_Information_Ptr_t p_stateInfo )
 {
-  // If we are in a global phase, make sure it knows our current task
-  if( p_stateInfo->stateNumber == STATE_COMPLETED ||
-          p_stateInfo->stateNumber == STATE_FAILED ||
-          p_stateInfo->stateNumber == STATE_CANCELLED )
-  {
-      p_stateInfo->stateNumber = p_stateInfo->previousStateInfo_ptr->stateNumber;
-  }
-  p_stateInfo->timesEntered++;
+      // If we are in a global phase, make sure it knows our current task
+      if( p_stateInfo->stateNumber == STATE_COMPLETED ||
+              p_stateInfo->stateNumber == STATE_FAILED ||
+              p_stateInfo->stateNumber == STATE_CANCELLED )
+      {
+          p_stateInfo->stateNumber = p_stateInfo->previousStateInfo_ptr->stateNumber;
+      }
+      p_stateInfo->timesEntered++;
 
-//  System_printf( "Start\t%s\t%u\n",
-//                 state_to_string_table[p_stateInfo->stateNumber],
-//                 p_stateInfo->timesEntered);
-//  CLI_write ("Start\t%s\t%u\n",
-//             state_to_string_table[p_stateInfo->stateNumber],
-//             p_stateInfo->timesEntered);
-
-  if(p_stateInfo->stateMachine->uartHandle != NULL)
-  {
-      snprintf(logString,
-               sizeof(logString),
-               "Start\t%s\t%u\n",
-               state_to_string_table[p_stateInfo->stateNumber],
-               p_stateInfo->timesEntered);
-
-      UART_writePolling (p_stateInfo->stateMachine->uartHandle,
-                         (uint8_t*)&logString,
-                         strlen(logString));
-  }
+      Log_To_Uart(p_stateInfo,
+                  "Start\t%s\t%u\r\n",
+                  state_to_string_table[p_stateInfo->stateNumber],
+                  p_stateInfo->timesEntered);
 }
 
 void SM_Func_Initialization( State_Information_Ptr_t p_stateInfo )
@@ -225,12 +203,11 @@ void SM_Func_Standby( State_Information_Ptr_t p_stateInfo )
         Ranging_stopSensor();
         gMmwMssMCB.sensorState = Ranging_SensorState_STOPPED;
     }
-
 }
 
-void SM_Func_Continue_Rx( State_Information_Ptr_t p_stateInfo )
+void SM_Func_No_Operation( State_Information_Ptr_t p_stateInfo )
 {
-    // No operation - standing by
+    // No operation
 }
 
 void SM_Func_Cfg_Tx( State_Information_Ptr_t p_stateInfo )
@@ -287,6 +264,7 @@ void SM_Func_Activate_Rx_Cfg( State_Information_Ptr_t p_stateInfo )
     }
 }
 
+#include <ti/control/mmwave/include/mmwave_internal.h>
 // Configure the sensor through mmwavelink
 // Configure the datapath running on the DSP core
 // Start the sensor
@@ -318,6 +296,7 @@ void SM_Func_Rx( State_Information_Ptr_t p_stateInfo )
         gMmwMssMCB.objDetCommonCfg.preStartCommonCfg.numSubFrames = 1;
     }
 
+
     //////////////////////////////////////////////////////////////////
     // CONFIGURE SENSOR
     if (MMWave_config (gMmwMssMCB.ctrlHandle, &gMmwMssMCB.cfg.ctrlCfg, &errCode) < 0)
@@ -336,6 +315,7 @@ void SM_Func_Rx( State_Information_Ptr_t p_stateInfo )
     }
     else
     {
+
         if(Ranging_dataPathConfig(p_stateInfo->rxPrn))
         {
             Format_Error_String("Error Ranging_dataPathConfig");
@@ -347,15 +327,21 @@ void SM_Func_Rx( State_Information_Ptr_t p_stateInfo )
     //////////////////////////////////////////////////////////////////
     // START SENSOR
     // Starts the Data Path Module (DPM) running on the DSP core
-    // Waits for it to start, then starts the RF Module with MMWave_start
-    if(Ranging_startSensor())
-    {
-        Format_Error_String("Ranging_startSensor");
-        Send_State_Machine_Message( SM_MSG_FAILED );
-        return;
-    }
+    // Waits for it to start
+    Ranging_dataPathStart();    // Blocking
 
-    gMmwMssMCB.sensorState = Ranging_SensorState_STARTED;
+    // Send a command to the DSS to start the sensor
+    // When the sensor is started, it triggers the MSS sensor start callback function
+    // The callback function will call Send_Sensor_Started_Message( )
+    // Which sends SM_MSG_SENSOR_STARTED to the state machine
+    cmdDssToStartSensor();
+//    if(Ranging_startSensor())
+//    {
+//        Format_Error_String("Ranging_startSensor");
+//        Send_State_Machine_Message( SM_MSG_FAILED );
+//        return;
+//    }
+
 }
 
 void SM_Func_Rx_Response_Code( State_Information_Ptr_t p_stateInfo )

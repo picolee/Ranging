@@ -636,9 +636,8 @@
 #include <inc/ranging_adcconfig.h>
 #include <inc/state_machine.h>
 #include <inc/ranging_dpc_interface.h>
+#include <shared/ranging_mailbox.h>
 #include <ti/demo/utils/mmwdemo_flash.h>
-
-/* Profiler Include Files */
 #include <ti/utils/cycleprofiler/cycle_profiler.h>
 
 #ifdef SYS_COMMON_XWR68XX_LOW_POWER_MODE_EN
@@ -656,10 +655,11 @@
  * dpm task assumes CLI task is held back during this processing. The alternative
  * is to use a semaphore between the two tasks.
  */
-#define MMWDEMO_CLI_TASK_PRIORITY                 3
-#define MMWDEMO_DPC_OBJDET_DPM_TASK_PRIORITY      4
-#define STATE_MACHINE_TASK_PRIORITY               4
-#define MMWDEMO_MMWAVE_CTRL_TASK_PRIORITY         5
+#define MMWDEMO_CLI_TASK_PRIORITY               3
+#define MMWDEMO_DPC_OBJDET_DPM_TASK_PRIORITY    4
+#define STATE_MACHINE_TASK_PRIORITY             4
+#define IPC_MAILBOX_TASK_PRIORITY               4
+#define MMWDEMO_MMWAVE_CTRL_TASK_PRIORITY       5
 
 #if (MMWDEMO_CLI_TASK_PRIORITY >= MMWDEMO_DPC_OBJDET_DPM_TASK_PRIORITY)
 #error CLI task priority must be < Object Detection DPM task priority
@@ -730,6 +730,7 @@ Ranging_calibData gCalibDataStorage;
  **************************************************************************/
 
 extern void Ranging_CLIInit(uint8_t taskPriority);
+extern void ranging_mssMboxReadTask(UArg arg0, UArg arg1);
 extern DPM_ProcChainCfg gDPC_ObjDetRangeDSPCfg;
 
 /**************************************************************************
@@ -1719,6 +1720,102 @@ static int32_t Ranging_calibRestore(Ranging_calibData  *ptrCalibData)
     return(retVal);
 }
 
+/**
+ *  @b Description
+ *  @n
+ *      Application registered callback function which is invoked after the DSS
+ *      has configured the mmWave link and the BSS.
+ *
+ *  @param[in]  ptrCtrlCfg
+ *      Pointer to the control configuration
+ *
+ *  @retval
+ *      Not applicable
+ */
+void Ranging_mssMmwaveConfigCallbackFxn(MMWave_CtrlCfg* ptrCtrlCfg)
+{
+    // The DSS should not configure the sensor
+    Ranging_debugAssert (0);
+    return;
+}
+
+/**
+ *  @b Description
+ *  @n
+ *      Application registered callback function which is invoked after the
+ *      DSS has opened mmWave link on BSS.
+ *
+ *  @param[in]  ptrOpenCfg
+ *      Pointer to the open configuration
+ *
+ *  @retval
+ *      Not applicable
+ */
+static void Ranging_mssMmwaveOpenCallbackFxn(MMWave_OpenCfg* ptrOpenCfg)
+{
+    // The DSS should not open the sensor
+    Ranging_debugAssert (0);
+    return;
+}
+
+/**
+ *  @b Description
+ *  @n
+ *      Application registered callback function which is invoked the mmWave link on BSS
+ *      has been closed.
+ *
+ *  @retval
+ *      Not applicable
+ */
+static void Ranging_mssMmwaveCloseCallbackFxn(void)
+{
+    // The DSS should not close the sensor
+    Ranging_debugAssert (0);
+    return;
+}
+
+/**
+ *  @b Description
+ *  @n
+ *      Application registered callback function which is invoked when
+ *      the DSS starts the mmWave link on BSS. Informs the state machine.
+ *
+ *  @param[in]  ptrCalibrationCfg
+ *      Pointer to the calibration configuration
+ *
+ *  @retval
+ *      Not applicable
+ */
+
+void Ranging_mssMmwaveStartCallbackFxn(MMWave_CalibrationCfg* ptrCalibrationCfg)
+{
+    // Copy out the calibration config that was used
+    memcpy((void *)(&gMmwMssMCB.calibCfg), (void *)ptrCalibrationCfg, sizeof(MMWave_CalibrationCfg));
+
+    // Global state variable - eventually we should only use the state machine
+    gMmwMssMCB.sensorState = Ranging_SensorState_STARTED;
+
+    // Update the state machine
+    Send_Sensor_Started_Message( );
+    return;
+}
+
+/**
+ *  @b Description
+ *  @n
+ *      Application registered callback function which is invoked when the DSS
+ *      stops the mmWave link on BSS.
+ *
+ *  @retval
+ *      Not applicable
+ */
+void Ranging_mssMmwaveStopCallbackFxn(void)
+{
+    // The DSS should not stop the sensor
+    Ranging_debugAssert (0);
+    return;
+}
+
 
 /**
  *  @b Description
@@ -1752,15 +1849,18 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
     /* Initialize the GPIO */
     GPIO_init();
 
-    /* Initialize the Mailbox */
-    Mailbox_init(MAILBOX_TYPE_MSS);
-
     /* Initialize LVDS streaming components */
     if ((errCode = Ranging_LVDSStreamInit()) < 0 )
     {
         System_printf ("Error: MMWDemoDSS LVDS stream init failed with Error[%d]\n",errCode);
         return;
     }
+
+    initializeMailboxWithRemote(IPC_MAILBOX_TASK_PRIORITY,
+                                MAILBOX_TYPE_MSS,
+                                MAILBOX_TYPE_DSS,
+                                &gMmwMssMCB.taskHandles.dssMailboxTask,
+                                &ranging_mssMboxReadTask);
 
     /* initialize cq configs to invalid profile index to be able to detect
      * unconfigured state of these when monitors for them are enabled.
@@ -1812,10 +1912,11 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
      * to the sensor management task. The signalling (Semaphore_post) will be done
      * from DPM registered report function (which will execute in the DPM execute task context). */
     Semaphore_Params_init(&semParams);
-    semParams.mode              = Semaphore_Mode_BINARY;
-    gMmwMssMCB.DPMstartSemHandle   = Semaphore_create(0, &semParams, NULL);
-    gMmwMssMCB.DPMstopSemHandle   = Semaphore_create(0, &semParams, NULL);
-    gMmwMssMCB.DPMioctlSemHandle   = Semaphore_create(0, &semParams, NULL);
+    semParams.mode                  = Semaphore_Mode_BINARY;
+    gMmwMssMCB.DPMstartSemHandle    = Semaphore_create(0, &semParams, NULL);
+    gMmwMssMCB.DPMstopSemHandle     = Semaphore_create(0, &semParams, NULL);
+    gMmwMssMCB.DPMioctlSemHandle    = Semaphore_create(0, &semParams, NULL);
+    gMmwMssMCB.dssMboxSemHandle     = Semaphore_create(0, &semParams, NULL);
 
     /* Open EDMA driver */
     Ranging_edmaInit();
@@ -1831,13 +1932,18 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
     memset ((void*)&initCfg, 0 , sizeof(MMWave_InitCfg));
 
     /* Populate the init configuration: */
-    initCfg.domain                  = MMWave_Domain_MSS;
-    initCfg.socHandle               = gMmwMssMCB.socHandle;
-    initCfg.eventFxn                = Ranging_eventCallbackFxn;
-    initCfg.linkCRCCfg.useCRCDriver = 1U;
-    initCfg.linkCRCCfg.crcChannel   = CRC_Channel_CH1;
-    initCfg.cfgMode                 = MMWave_ConfigurationMode_FULL;
-    initCfg.executionMode           = MMWave_ExecutionMode_ISOLATION;
+    initCfg.domain                      = MMWave_Domain_MSS;
+    initCfg.socHandle                   = gMmwMssMCB.socHandle;
+    initCfg.eventFxn                    = Ranging_eventCallbackFxn;
+    initCfg.linkCRCCfg.useCRCDriver     = 1U;
+    initCfg.linkCRCCfg.crcChannel       = CRC_Channel_CH1;
+    initCfg.cfgMode                     = MMWave_ConfigurationMode_FULL;
+    initCfg.executionMode               = MMWave_ExecutionMode_COOPERATIVE;
+    initCfg.cooperativeModeCfg.cfgFxn   = Ranging_mssMmwaveConfigCallbackFxn;
+    initCfg.cooperativeModeCfg.openFxn  = Ranging_mssMmwaveOpenCallbackFxn;
+    initCfg.cooperativeModeCfg.closeFxn = Ranging_mssMmwaveCloseCallbackFxn;
+    initCfg.cooperativeModeCfg.startFxn = Ranging_mssMmwaveStartCallbackFxn;
+    initCfg.cooperativeModeCfg.stopFxn  = Ranging_mssMmwaveStopCallbackFxn;
 
     /* Initialize and setup the mmWave Control module */
     gMmwMssMCB.ctrlHandle = MMWave_init (&initCfg, &errCode);
@@ -1852,14 +1958,26 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
 
     /* Synchronization: This will synchronize the execution of the control module
      * between the domains. This is a prerequiste and always needs to be invoked. */
-    if (MMWave_sync (gMmwMssMCB.ctrlHandle, &errCode) < 0)
+    while (1)
     {
-        /* Error: Unable to synchronize the mmWave control module */
-        System_printf ("Error: mmWave Control Synchronization failed [Error code %d]\n", errCode);
-        Ranging_debugAssert (0);
-        return;
+        int32_t syncStatus;
+
+        /* Get the synchronization status: */
+        syncStatus = MMWave_sync(gMmwMssMCB.ctrlHandle, &errCode);
+        if (syncStatus < 0)
+        {
+            /* Error: Unable to synchronize the mmWave control module */
+            System_printf("Error: mmWave Control Synchronization failed [Error code %d]\n", errCode);
+            return;
+        }
+        if (syncStatus == 1)
+        {
+            /* Synchronization acheived: */
+            break;
+        }
+        /* Sleep and poll again: */
+        Task_sleep(1);
     }
-    System_printf ("Debug: mmWave Control Synchronization was successful\n");
 
     /* Get RF frequency scale factor */
     gMmwMssMCB.rfFreqScaleFactor = SOC_getDeviceRFFreqScaleFactor(gMmwMssMCB.socHandle, &errCode);

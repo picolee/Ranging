@@ -76,6 +76,7 @@
 /* Ranging instance etc */
 #include <inc/ranging_dpc_internal.h>
 #include <inc/ranging_dpc.h>
+#include <inc/ranging_dss.h>
 
 #include <ti/alg/mmwavelib/mmwavelib.h>
 
@@ -84,6 +85,8 @@
 #ifdef DBG_DPC_OBJDET
 ObjDetObj     *gObjDetObj;
 #endif
+
+#pragma SET_CODE_SECTION(".l1pcode")
 
 /**************************************************************************
  ************************** Local Definitions **********************************
@@ -184,8 +187,18 @@ ObjDetObj     *gObjDetObj;
 #define DPC_RANGING_DSP_QFORMAT_RANGE_FFT 15
 #define DPC_RANGING_DSP_QFORMAT_DOPPLER_FFT 19
 
+
+////////////////////////////////////////////////////////////////////////////
+////////////////////////// Globals /////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief
+ *  Global Variable for tracking information required by the mmw Demo
+ */
+extern Ranging_DSS_MCB    gMmwDssMCB;
+
 /**************************************************************************
- ************************** Local Functions Prototype **************************
+ ************************** Local Functions Prototype **********************
  **************************************************************************/
 
 static DPM_DPCHandle DPC_Ranging_init
@@ -439,6 +452,8 @@ void DPC_Ranging_chirpEvent (DPM_DPCHandle handle)
  *
  *  \ingroup DPC_RANGING__INTERNAL_FUNCTION
  */
+#pragma FUNCTION_OPTIONS(DPC_ObjDetDSP_rangeConfig, "--opt_for_speed")
+#pragma CODE_SECTION(DPC_ObjDetDSP_rangeConfig, ".l1pcode")
 static int32_t DPC_ObjDetDSP_rangeConfig
 (
     DPU_RangingDSP_Handle dpuHandle,
@@ -1035,6 +1050,8 @@ static int32_t DPC_Ranging_stop (DPM_DPCHandle handle)
  *  @retval
  *      Error   -   <0
  */
+#pragma FUNCTION_OPTIONS(DPC_Ranging_execute, "--opt_for_speed")
+#pragma CODE_SECTION(DPC_Ranging_execute, ".l1pcode")
 int32_t DPC_Ranging_execute
 (
     DPM_DPCHandle   handle,
@@ -1141,6 +1158,144 @@ exit:
     return retVal;
 }
 
+
+
+/**
+ *  @b Description
+ *  @n
+ *      The function is used to start the mmWave control module after the
+ *      configuration has been applied.
+ *
+ *  @param[in]  mmWaveHandle
+ *      Handle to the mmWave control module
+ *  @param[in]  ptrCalibrationCfg
+ *      Pointer to the calibration configuration
+ *  @param[out] errCode
+ *      Encoded Error code populated by the API on an error
+ *
+ *  \ingroup MMWAVE_CTRL_EXTERNAL_FUNCTION
+ *
+ *  @pre
+ *      MMWave_init
+ *  @pre
+ *      MMWave_sync
+ *  @pre
+ *      MMWave_open
+ *  @pre
+ *      MMWave_config (Only in full configuration mode)
+ *
+ *  @retval
+ *      Success -   0
+ *  @retval
+ *      Error   -   <0
+ */
+
+#include <ti/control/mmwave/include/mmwave_internal.h>
+#pragma FUNCTION_OPTIONS(MMWave_start_internal, "--opt_for_speed")
+#pragma CODE_SECTION(MMWave_start_internal, ".l1pcode")
+int32_t MMWave_start_internal (MMWave_Handle mmWaveHandle, const MMWave_CalibrationCfg* ptrCalibrationCfg, int32_t* errCode)
+{
+    MMWave_MCB*     ptrMMWaveMCB;
+    int32_t         retVal =1;
+
+    /* Initialize the error code: */
+    *errCode = 0;
+
+    /* Get the pointer to the control module */
+    ptrMMWaveMCB = (MMWave_MCB*)mmWaveHandle;
+    if ((ptrMMWaveMCB == NULL) || (ptrCalibrationCfg == NULL))
+    {
+        /* Error: Invalid argument. */
+        *errCode = MMWave_encodeError (MMWave_ErrorLevel_ERROR, MMWAVE_EINVAL, 0);
+        goto exit;
+    }
+
+    /****************************************************************************************
+     * Sanity Check:
+     *  - Validate the prerequisites
+     ****************************************************************************************/
+    if (ptrMMWaveMCB->initCfg.cfgMode == MMWave_ConfigurationMode_FULL)
+    {
+        /* Full Configuration Mode: Ensure that the application has configured the mmWave module
+         * Only then can we start the module. */
+        if (((ptrMMWaveMCB->status & MMWAVE_STATUS_SYNCHRONIZED) == 0U)    ||
+            ((ptrMMWaveMCB->status & MMWAVE_STATUS_OPENED)       == 0U)    ||
+            ((ptrMMWaveMCB->status & MMWAVE_STATUS_CONFIGURED)   == 0U))
+        {
+            /* Error: Invalid usage the module should be synchronized before it can be started. */
+            *errCode = MMWave_encodeError (MMWave_ErrorLevel_ERROR, MMWAVE_EINVAL, 0);
+            goto exit;
+        }
+
+        /* Sanity Check: Validate the DFE output mode. This should always match in the FULL configuration mode. */
+        if (ptrMMWaveMCB->dfeDataOutputMode != ptrCalibrationCfg->dfeDataOutputMode)
+        {
+            /* Error: Invalid argument. */
+            *errCode = MMWave_encodeError (MMWave_ErrorLevel_ERROR, MMWAVE_EINVAL, 0);
+            goto exit;
+        }
+    }
+    else
+    {
+        /* Minimal Configuration Mode: Application should have opened and synchronized the mmWave module
+         * Configuration of the mmWave link is the responsibility of the application using the link API */
+        if (((ptrMMWaveMCB->status & MMWAVE_STATUS_SYNCHRONIZED) == 0U) ||
+            ((ptrMMWaveMCB->status & MMWAVE_STATUS_OPENED)       == 0U))
+        {
+            /* Error: Invalid usage the module should be synchronized before it can be started. */
+            *errCode = MMWave_encodeError (MMWave_ErrorLevel_ERROR, MMWAVE_EINVAL, 0);
+            goto exit;
+        }
+
+        /* Initialize the DFE Output mode: */
+        ptrMMWaveMCB->dfeDataOutputMode = ptrCalibrationCfg->dfeDataOutputMode;
+    }
+
+    /* Sanity Check: Ensure that the module has not already been started */
+    if ((ptrMMWaveMCB->status & MMWAVE_STATUS_STARTED) == MMWAVE_STATUS_STARTED)
+    {
+        /* Error: Invalid usage the module should be stopped before it can be started again. */
+        *errCode = MMWave_encodeError (MMWave_ErrorLevel_ERROR, MMWAVE_EINVAL, 0);
+        goto exit;
+    }
+
+    /* Copy over the calibration configuration: */
+    memcpy ((void*)&ptrMMWaveMCB->calibrationCfg, (const void*)ptrCalibrationCfg, sizeof(MMWave_CalibrationCfg));
+
+    /* SOC specific start: We need to notify the peer domain before the real time starts. */
+    retVal = MMWave_deviceStartFxn (ptrMMWaveMCB, errCode);
+    if (retVal < 0)
+    {
+        /* Error: SOC Start failed; error code is already setup */
+        goto exit;
+    }
+
+    /* Start the mmWave link: */
+    retVal = MMWave_startLink (ptrMMWaveMCB, errCode);
+    if (retVal < 0)
+    {
+        /* Error: Unable to start the link; error code is already setup */
+        goto exit;
+    }
+
+    /* The module has been started successfully: */
+    ptrMMWaveMCB->status = ptrMMWaveMCB->status | MMWAVE_STATUS_STARTED;
+
+exit:
+    /* Determing the error level from the error code? */
+    if (MMWave_decodeErrorLevel (*errCode) == MMWave_ErrorLevel_SUCCESS)
+    {
+        /* Success: Setup the return value */
+        retVal = 0;
+    }
+    else
+    {
+        /* Informational/Error: Setup the return value */
+        retVal = MINUS_ONE;
+    }
+    return retVal;
+}
+
 /**
  *  @b Description
  *  @n
@@ -1159,6 +1314,8 @@ exit:
  *  @retval
  *      Error   -   <0
  */
+#pragma FUNCTION_OPTIONS(DPC_Ranging_ioctl, "--opt_for_speed")
+#pragma CODE_SECTION(DPC_Ranging_ioctl, ".l1pcode")
 static int32_t DPC_Ranging_ioctl
 (
     DPM_DPCHandle       handle,
@@ -1170,6 +1327,7 @@ static int32_t DPC_Ranging_ioctl
     ObjDetObj   *objDetObj;
     SubFrameObj *subFrmObj;
     int32_t      retVal = 0;
+    int32_t             errCode;
 
     /* Get the DSS MCB: */
     objDetObj = (ObjDetObj *) handle;
@@ -1251,9 +1409,7 @@ static int32_t DPC_Ranging_ioctl
     }
     else
     {
-        /* First argument is sub-frame number */
         DebugP_assert(arg != NULL);
-
         switch (cmd)
         {
             /* Related to pre-start configuration */
@@ -1291,14 +1447,19 @@ static int32_t DPC_Ranging_ioctl
                 // Functions need to be renamed to make sense.
                 // DPC_ObjDetDSP_preStartConfig --> DPC_ObjDetDSP_rangeConfig -->
                 // --> DPU_RangingDSP_config --> rangingDSP_ParseConfig
+
                 // DPC_ObjDetDSP_preStartConfig resets L1, L2, L3 memory pools
                 // it then allocates memory for the radar cube
-                // Then DPC_ObjDetDSP_preStartConfig calls DPC_ObjDetDSP_rangeConfig
+
+                // DPC_ObjDetDSP_preStartConfig calls DPC_ObjDetDSP_rangeConfig
+
                 // DPC_ObjDetDSP_rangeConfig extracts some parameters from the staticCfg passed by MSS
                 // Then DPC_ObjDetDSP_rangeConfig sets up the L1, L2, and L3 pointers and the EDMA
                 // Then DPC_ObjDetDSP_rangeConfig calls DPU_RangingDSP_config
+
                 // DPU_RangingDSP_config performs some validation, then calls rangingDSP_ParseConfig
                 // rangingDSP_ParseConfig extracts more parameters and fills out rangingDSPObj
+
                 retVal = DPC_ObjDetDSP_preStartConfig(subFrmObj,
                              &objDetObj->commonCfg, 
                              cfg,
@@ -1323,46 +1484,6 @@ static int32_t DPC_Ranging_ioctl
                 memUsage->SystemHeapDPCUsed = statsStart.totalFreeSize - statsEnd.totalFreeSize;
 
                 DebugP_log1("ObjDet DPC: Pre-start Config IOCTL processed (subFrameIndx = %d)\n", subFrameNum);
-                break;
-            }
-
-            case DPC_RANGING_IOCTL_START_SENSOR:
-            {
-                int32_t     errCode;
-                MMWave_CalibrationCfg   calibrationCfg;
-                MMWave_Handle           ctrlHandle;
-
-                ctrlHandle = (MMWave_Handle*)arg;
-                ///////////////////////////////////////////////////////////////////////////////
-                // RF :: now start the RF and the real time ticking
-                ///////////////////////////////////////////////////////////////////////////////
-                // Initialize the calibration configuration:
-                memset ((void *)&calibrationCfg, 0, sizeof(MMWave_CalibrationCfg));
-                // Populate the calibration configuration:
-                calibrationCfg.dfeDataOutputMode = MMWave_DFEDataOutputMode_FRAME;
-                calibrationCfg.u.chirpCalibrationCfg.enableCalibration    = false;
-                calibrationCfg.u.chirpCalibrationCfg.enablePeriodicity    = false;
-                calibrationCfg.u.chirpCalibrationCfg.periodicTimeInFrames = 10U;
-
-                DebugP_log0("App: MMWave_start Issued\n");
-
-                DebugP_log0("Starting Sensor (issuing MMWave_start)\n");
-
-                // Start the mmWave module: The configuration has been applied successfully.
-                if (MMWave_start(ctrlHandle, &calibrationCfg, &errCode) < 0)
-                {
-                    MMWave_ErrorLevel   errorLevel;
-                    int16_t             mmWaveErrorCode;
-                    int16_t             subsysErrorCode;
-
-                    /* Error/Warning: Unable to start the mmWave module */
-                    MMWave_decodeError (errCode, &errorLevel, &mmWaveErrorCode, &subsysErrorCode);
-                    DebugP_log2 ("Error: mmWave Start failed [mmWave Error: %d Subsys: %d]\n", mmWaveErrorCode, subsysErrorCode);
-                    /* datapath has already been moved to start state; so either we initiate a cleanup of start sequence or
-                       assert here and re-start from the beginning. For now, choosing the latter path */
-                    DebugP_assert(0);
-                    return -1;
-                }
                 break;
             }
 
@@ -1403,6 +1524,8 @@ exit:
  *  @retval
  *      Error   -   <0
  */
+#pragma FUNCTION_OPTIONS(DPC_Ranging_init, "--opt_for_speed")
+#pragma CODE_SECTION(DPC_Ranging_init, ".l1pcode")
 static DPM_DPCHandle DPC_Ranging_init
 (
     DPM_Handle          dpmHandle,

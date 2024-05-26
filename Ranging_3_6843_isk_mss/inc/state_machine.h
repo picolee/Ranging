@@ -45,6 +45,11 @@ void Send_State_Machine_Init_Message( );
 void Send_Code_Detect_Message();
 void Send_No_Code_Detect_Message( );
 
+void Send_Sensor_Started_Message( );
+
 void Send_Transmit_Complete_Message();
+
+void Send_DSS_Reports_Success_Message( );
+void Send_DSS_Reports_Failure_Message( );
 
 #endif /* APPLICATION_HAICU_STATE_MACHINE_H_ */

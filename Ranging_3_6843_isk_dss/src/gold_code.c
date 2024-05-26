@@ -210,6 +210,10 @@ void convert_zeros_to_minus_ones(int16_t* code, int n)
     }
 }
 
+#ifdef SUBSYS_DSS
+#pragma FUNCTION_OPTIONS(generate_one_gold_sequence, "--opt_for_speed")
+#pragma CODE_SECTION(generate_one_gold_sequence, ".l1pcode")
+#endif
 int generate_one_gold_sequence(uint8_t n, gold_code_struct_t* output_code, uint16_t sequence_number)
 {
     TapConfig *taps = preferred_pairs[n-5];

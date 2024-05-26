@@ -292,3 +292,18 @@ void Send_Transmit_Complete_Message()
 {
     Send_State_Machine_Message( SM_MSG_TX_COMPLETE );
 }
+
+void Send_Sensor_Started_Message()
+{
+    Send_State_Machine_Message( SM_MSG_SENSOR_STARTED );
+}
+
+void Send_DSS_Reports_Success_Message( )
+{
+    Send_State_Machine_Message( SM_MSG_DSS_REPORTS_SUCCESS );
+}
+
+void Send_DSS_Reports_Failure_Message( )
+{
+    Send_State_Machine_Message( SM_MSG_DSS_REPORTS_FAILURE );
+}

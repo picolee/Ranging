@@ -47,6 +47,7 @@
 #include <ti/drivers/mailbox/mailbox.h>
 #include <ti/drivers/edma/edma.h>
 #include <ti/drivers/osal/DebugP.h>
+#include <ti/control/mmwave/mmwave.h>
 
 #include <inc/ranging_output.h>
 #include <inc/ranging_dpc.h>
@@ -76,6 +77,32 @@ typedef struct Ranging_DataPathObj_t
     Ranging_output_message_stats   subFrameStats[RL_MAX_SUBFRAMES];
 } Ranging_DataPathObj;
 
+/** @}*/ /* configStoreOffsets */
+
+/**
+ * @brief
+ *  Millimeter Wave Demo Sensor State
+ *
+ * @details
+ *  The enumeration is used to define the sensor states used in mmwDemo
+ */
+typedef enum Ranging_SensorState_e
+{
+    /*!  @brief Inital state after sensor is initialized.
+     */
+    Ranging_SensorState_INIT = 0,
+
+    /*!  @brief Inital state after sensor is post RF init.
+     */
+    Ranging_SensorState_OPENED,
+
+    /*!  @brief Indicates sensor is started */
+    Ranging_SensorState_STARTED,
+
+    /*!  @brief  State after sensor has completely stopped */
+    Ranging_SensorState_STOPPED
+}Ranging_SensorState;
+
 /**
  * @brief
  *  Millimeter Wave Demo MCB
@@ -95,8 +122,30 @@ typedef struct Ranging_DSS_MCB_t
     /*! @brief     init Task Handle */
     Task_Handle                 initTaskHandle;
 
+    /*! @brief     init Task Handle */
+    Task_Handle                 mboxTaskHandle;
+
     /*! @brief     Data Path object */
     Ranging_DataPathObj         dataPathObj;
+
+    /*! @brief      This is the mmWave control handle which is used
+     * to configure the BSS. */
+    MMWave_Handle               ctrlHandle;
+
+    /*! @brief   mmWave Control Configuration. */
+    MMWave_CtrlCfg              ctrlCfg;
+
+    /*! @brief   mmWave Open Configuration. */
+    MMWave_OpenCfg              openCfg;
+
+    /*! @brief    Sensor state */
+    Ranging_SensorState         sensorState;
+
+    /*! @brief   Tracks the number of sensor start */
+    uint32_t                    sensorStartCount;
+
+    /*! @brief   Tracks the number of sensor sop */
+    uint32_t                    sensorStopCount;
 
     /*! @brief   Counter which tracks the number of dpm stop events received
                  The event is triggered by DPM_Report_DPC_STOPPED from DPM */

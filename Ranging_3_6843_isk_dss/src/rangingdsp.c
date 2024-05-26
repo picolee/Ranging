@@ -433,6 +433,8 @@ static int32_t rangingDSP_ConfigDataOutEDMA
  *  @retval
  *      Error       - <0
  */
+#pragma FUNCTION_OPTIONS(rangingDSP_ParseConfig, "--opt_for_speed")
+#pragma CODE_SECTION(rangingDSP_ParseConfig, ".l1pcode")
 static int32_t rangingDSP_ParseConfig
 (
     rangingDSPObj          *rangingObj,
@@ -473,7 +475,7 @@ static int32_t rangingDSP_ParseConfig
     rangingObj->fftTwiddle16x16L3_16kB      = (cmplx16ImRe_t *)twiddle_factors;     // Each value 2 bytes
 
     /* Save Scratch buffers */
-    rangingObj->scratchBufferOneL2_32kB     = pHwRes->fftTwiddle16x16L2_16kB;
+    rangingObj->scratchBufferOneL2_32kB     = pHwRes->fftTwiddle16x16L2_16kB;   // 32kB contiguous RAM from fftTwiddle16x16L2_16kB and localGoldCodeFFTBufferL2_16kB
     rangingObj->scratchBufferTwoL2_32kB     = pHwRes->scratchBufferL2_32kB;
     rangingObj->adcDataInL1_16kB            = pHwRes->adcDataInL1_16kB;
 
@@ -972,6 +974,8 @@ int32_t DPU_RangingDSP_process
         //uint32_t            max_value               = 0;
         uint16_t            num_line_fit_points     = 11;
         cmplx16ImRe_t *     scratchPageTwo_L2_16kB  = rangingObj->scratchBufferTwoL2_32kB + DPParams->numAdcSamples;
+
+        // scratchBufferOneL2_32kB is 32kB contiguous RAM from fftTwiddle16x16L2_16kB and localGoldCodeFFTBufferL2_16kB
         cmplx32ImRe_t *     ifftBuffer              = (cmplx32ImRe_t *) rangingObj->scratchBufferOneL2_32kB;
         float         *     ifftMagnitudeBuffer     = (float *)      rangingObj->scratchBufferTwoL2_32kB;
         cmplx32ImRe_t *     vectorMultiplyBuffer    = (cmplx32ImRe_t *) rangingObj->scratchBufferTwoL2_32kB;
@@ -1094,6 +1098,7 @@ int32_t DPU_RangingDSP_process
         //      DSP_ifft16x32 assumes input data in format ReIm - flipped from what we have
         //      This has no effect on magnitude which is the next step
         //      This overwrites the Complex Conjugate(FFT(Gold Code)) and FFT twiddle factors
+        //      they are: fftTwiddle16x16L2_16kB and localGoldCodeFFTBufferL2_16kB
         //      They need to be copied back from L3 later
         //      Inefficient - takes 241 us - only need half as many computations once optimized
         //      This array needs to be reversed

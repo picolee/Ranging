@@ -95,6 +95,8 @@ static short d2s(double d)
 /*      elements long.  (The actual size, which is slightly smaller, is     */
 /*      returned by the function.)                                          */
 /* ======================================================================== */
+#pragma FUNCTION_OPTIONS(gen_twiddle_fft16x32, "--opt_for_speed")
+#pragma CODE_SECTION(gen_twiddle_fft16x32, ".l1pcode")
 int gen_twiddle_fft16x32(short *w, int n)
 {
     int i, j, k;

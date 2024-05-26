@@ -670,18 +670,13 @@ typedef struct DPC_Ranging_ExecuteResultExportedInfo_t
  *        The @ref DPC_RANGING_IOCTL__STATIC_PRE_START_COMMON_CFG must be issued
  *        before issuing this IOCTL.
  */
-#define DPC_RANGING_IOCTL__STATIC_PRE_START_CFG                            (DPM_CMD_DPC_START_INDEX + 0U)
-
-/**
- * @brief Command starts the sensor. Should be called after the sensor is configured in the MSS.
- */
-#define DPC_RANGING_IOCTL_START_SENSOR                                      (DPM_CMD_DPC_START_INDEX + 1U)
+#define DPC_RANGING_IOCTL__STATIC_PRE_START_CFG                             (DPM_CMD_DPC_START_INDEX + 0U)
 
 /**
  * @brief Command associated with @ref DPC_Ranging_PreStartCommonCfg_t. Must be issued before
  *        issuing @ref DPC_RANGING_IOCTL__STATIC_PRE_START_CFG
  */
-#define DPC_RANGING_IOCTL__STATIC_PRE_START_COMMON_CFG                     (DPM_CMD_DPC_START_INDEX + 1U)
+#define DPC_RANGING_IOCTL__STATIC_PRE_START_COMMON_CFG                      (DPM_CMD_DPC_START_INDEX + 1U)
 
 /**
  * @brief This commands indicates to the DPC that the results DPC provided to the application

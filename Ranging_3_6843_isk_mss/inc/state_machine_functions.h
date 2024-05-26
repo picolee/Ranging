@@ -27,7 +27,7 @@ void SM_Func_Cfg_Rx( State_Information_Ptr_t p_stateInfo );
 void SM_Func_Activate_Rx_Cfg( State_Information_Ptr_t p_stateInfo );
 void SM_Func_Rx( State_Information_Ptr_t p_stateInfo );
 void SM_Func_Rx_Response_Code( State_Information_Ptr_t p_stateInfo );
-void SM_Func_Continue_Rx( State_Information_Ptr_t p_stateInfo );
+void SM_Func_No_Operation( State_Information_Ptr_t p_stateInfo );
 
 void SM_Func_Task_Completed_Successfully( State_Information_Ptr_t p_stateInfo );
 void SM_Func_Task_Failed( State_Information_Ptr_t p_stateInfo );
