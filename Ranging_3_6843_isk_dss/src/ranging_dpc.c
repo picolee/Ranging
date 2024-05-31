@@ -830,30 +830,30 @@ static int32_t DPC_ObjDetDSP_preStartConfig
     dataSize = staticCfg->ADCBufData.dataProperty.numAdcSamples * staticCfg->numChirpsPerFrame *
             staticCfg->ADCBufData.dataProperty.numRxAntennas * sizeof(cmplx16ImRe_t);
 
-    // Magnitude - complex array of 2 byte values
+    // Magnitude - complex array of 2 byte values - magnitudeDataL3
     dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * staticCfg->numChirpsPerFrame *
             staticCfg->ADCBufData.dataProperty.numRxAntennas * sizeof(cmplx16ImRe_t);
 
-    // FFT data - complex array of 2 byte values
+    // FFT data - complex array of 2 byte values - fftOfMagnitudeL3
     dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * staticCfg->numChirpsPerFrame *
             staticCfg->ADCBufData.dataProperty.numRxAntennas * sizeof(cmplx16ImRe_t);
 
-    // Vector Multiply - complex array of 4 byte values - twice as large as others
+    // Vector Multiply - complex array of 4 byte values - twice as large as others - vectorMultiplyOfFFtedDataL3
     dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * staticCfg->numChirpsPerFrame *
             staticCfg->ADCBufData.dataProperty.numRxAntennas * sizeof(cmplx32ImRe_t);
 
-    // IFFT - complex array of 4 byte values - twice as large as others
+    // IFFT - complex array of 4 byte values - twice as large as others - iFftDataL3
     dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * staticCfg->numChirpsPerFrame *
             staticCfg->ADCBufData.dataProperty.numRxAntennas * sizeof(cmplx32ImRe_t);
 
-    // MAG IFFT - complex array of 4 byte values - twice as large as others
+    // MAG IFFT - complex array of 4 byte values - twice as large as others - magIfftDataL3
     dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * staticCfg->numChirpsPerFrame *
             staticCfg->ADCBufData.dataProperty.numRxAntennas * sizeof(cmplx32ImRe_t);
 
-    // Complex Conjugate of Gold Code - complex array of 2 byte values
+    // Complex Conjugate of Gold Code - complex array of 2 byte values - fftGoldCodeL3_16kB
     dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * sizeof(cmplx16ImRe_t);
 
-    // FFT twiddle factors - complex array of 2 byte values
+    // IFFT twiddle factors - complex array of 2 byte values - ifftTwiddle16x16L3_16kB
     dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * sizeof(cmplx16ImRe_t);
 
     // Add some space for headers
@@ -933,9 +933,15 @@ exit:
  */
 static void DPC_Ranging_frameStart (DPM_DPCHandle handle)
 {
+    /*! @brief  Frame start time from TSCH */
+    uint32_t        frameTimeLow = Cycleprofiler_getTimeStamp();
+    uint32_t        frameTimeHigh = TSCH;
+
     ObjDetObj     *objDetObj = (ObjDetObj *) handle;
 
-    objDetObj->stats.frameStartTimeStamp = Cycleprofiler_getTimeStamp();
+    objDetObj->rangingData.frameStartTimeLow    = frameTimeLow;
+    objDetObj->rangingData.frameStartTimeHigh   = frameTimeHigh;
+    objDetObj->stats.frameStartTimeStamp        = frameTimeLow;
 
     DebugP_log2("ObjDet DPC: Frame Start, frameIndx = %d, subFrameIndx = %d\n",
                 objDetObj->stats.frameStartIntCounter, objDetObj->subFrameIndx);
@@ -1130,9 +1136,6 @@ int32_t DPC_Ranging_execute
         result->rangingData->ifftTime                   = outRanging.stats.ifftTime;
         result->rangingData->magIfftTime                = outRanging.stats.magIfftTime;
 
-        // Check for rollover
-
-
         /* populate DPM_resultBuf - first pointer and size are for results of the processing */
         result->radarCube.data = rangingObj->radarCubebuf;
         result->radarCube.dataSize = rangingObj->DPParams.numAdcSamples * \
@@ -1159,142 +1162,6 @@ exit:
 }
 
 
-
-/**
- *  @b Description
- *  @n
- *      The function is used to start the mmWave control module after the
- *      configuration has been applied.
- *
- *  @param[in]  mmWaveHandle
- *      Handle to the mmWave control module
- *  @param[in]  ptrCalibrationCfg
- *      Pointer to the calibration configuration
- *  @param[out] errCode
- *      Encoded Error code populated by the API on an error
- *
- *  \ingroup MMWAVE_CTRL_EXTERNAL_FUNCTION
- *
- *  @pre
- *      MMWave_init
- *  @pre
- *      MMWave_sync
- *  @pre
- *      MMWave_open
- *  @pre
- *      MMWave_config (Only in full configuration mode)
- *
- *  @retval
- *      Success -   0
- *  @retval
- *      Error   -   <0
- */
-
-#include <ti/control/mmwave/include/mmwave_internal.h>
-#pragma FUNCTION_OPTIONS(MMWave_start_internal, "--opt_for_speed")
-#pragma CODE_SECTION(MMWave_start_internal, ".l1pcode")
-int32_t MMWave_start_internal (MMWave_Handle mmWaveHandle, const MMWave_CalibrationCfg* ptrCalibrationCfg, int32_t* errCode)
-{
-    MMWave_MCB*     ptrMMWaveMCB;
-    int32_t         retVal =1;
-
-    /* Initialize the error code: */
-    *errCode = 0;
-
-    /* Get the pointer to the control module */
-    ptrMMWaveMCB = (MMWave_MCB*)mmWaveHandle;
-    if ((ptrMMWaveMCB == NULL) || (ptrCalibrationCfg == NULL))
-    {
-        /* Error: Invalid argument. */
-        *errCode = MMWave_encodeError (MMWave_ErrorLevel_ERROR, MMWAVE_EINVAL, 0);
-        goto exit;
-    }
-
-    /****************************************************************************************
-     * Sanity Check:
-     *  - Validate the prerequisites
-     ****************************************************************************************/
-    if (ptrMMWaveMCB->initCfg.cfgMode == MMWave_ConfigurationMode_FULL)
-    {
-        /* Full Configuration Mode: Ensure that the application has configured the mmWave module
-         * Only then can we start the module. */
-        if (((ptrMMWaveMCB->status & MMWAVE_STATUS_SYNCHRONIZED) == 0U)    ||
-            ((ptrMMWaveMCB->status & MMWAVE_STATUS_OPENED)       == 0U)    ||
-            ((ptrMMWaveMCB->status & MMWAVE_STATUS_CONFIGURED)   == 0U))
-        {
-            /* Error: Invalid usage the module should be synchronized before it can be started. */
-            *errCode = MMWave_encodeError (MMWave_ErrorLevel_ERROR, MMWAVE_EINVAL, 0);
-            goto exit;
-        }
-
-        /* Sanity Check: Validate the DFE output mode. This should always match in the FULL configuration mode. */
-        if (ptrMMWaveMCB->dfeDataOutputMode != ptrCalibrationCfg->dfeDataOutputMode)
-        {
-            /* Error: Invalid argument. */
-            *errCode = MMWave_encodeError (MMWave_ErrorLevel_ERROR, MMWAVE_EINVAL, 0);
-            goto exit;
-        }
-    }
-    else
-    {
-        /* Minimal Configuration Mode: Application should have opened and synchronized the mmWave module
-         * Configuration of the mmWave link is the responsibility of the application using the link API */
-        if (((ptrMMWaveMCB->status & MMWAVE_STATUS_SYNCHRONIZED) == 0U) ||
-            ((ptrMMWaveMCB->status & MMWAVE_STATUS_OPENED)       == 0U))
-        {
-            /* Error: Invalid usage the module should be synchronized before it can be started. */
-            *errCode = MMWave_encodeError (MMWave_ErrorLevel_ERROR, MMWAVE_EINVAL, 0);
-            goto exit;
-        }
-
-        /* Initialize the DFE Output mode: */
-        ptrMMWaveMCB->dfeDataOutputMode = ptrCalibrationCfg->dfeDataOutputMode;
-    }
-
-    /* Sanity Check: Ensure that the module has not already been started */
-    if ((ptrMMWaveMCB->status & MMWAVE_STATUS_STARTED) == MMWAVE_STATUS_STARTED)
-    {
-        /* Error: Invalid usage the module should be stopped before it can be started again. */
-        *errCode = MMWave_encodeError (MMWave_ErrorLevel_ERROR, MMWAVE_EINVAL, 0);
-        goto exit;
-    }
-
-    /* Copy over the calibration configuration: */
-    memcpy ((void*)&ptrMMWaveMCB->calibrationCfg, (const void*)ptrCalibrationCfg, sizeof(MMWave_CalibrationCfg));
-
-    /* SOC specific start: We need to notify the peer domain before the real time starts. */
-    retVal = MMWave_deviceStartFxn (ptrMMWaveMCB, errCode);
-    if (retVal < 0)
-    {
-        /* Error: SOC Start failed; error code is already setup */
-        goto exit;
-    }
-
-    /* Start the mmWave link: */
-    retVal = MMWave_startLink (ptrMMWaveMCB, errCode);
-    if (retVal < 0)
-    {
-        /* Error: Unable to start the link; error code is already setup */
-        goto exit;
-    }
-
-    /* The module has been started successfully: */
-    ptrMMWaveMCB->status = ptrMMWaveMCB->status | MMWAVE_STATUS_STARTED;
-
-exit:
-    /* Determing the error level from the error code? */
-    if (MMWave_decodeErrorLevel (*errCode) == MMWave_ErrorLevel_SUCCESS)
-    {
-        /* Success: Setup the return value */
-        retVal = 0;
-    }
-    else
-    {
-        /* Informational/Error: Setup the return value */
-        retVal = MINUS_ONE;
-    }
-    return retVal;
-}
 
 /**
  *  @b Description
@@ -1327,7 +1194,6 @@ static int32_t DPC_Ranging_ioctl
     ObjDetObj   *objDetObj;
     SubFrameObj *subFrmObj;
     int32_t      retVal = 0;
-    int32_t             errCode;
 
     /* Get the DSS MCB: */
     objDetObj = (ObjDetObj *) handle;

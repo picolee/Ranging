@@ -52,10 +52,24 @@ static int32_t mboxWrite(Ranging_MSS_DSS_Message * message)
     return retVal;
 }
 
-void cmdDssToStartSensor()
+void cmdDssToStartSensorNow()
 {
     Ranging_MSS_DSS_Message message;
-    message.messageId = CMD_DSS_TO_START_SENSOR;
+    message.messageId = CMD_DSS_TO_START_SENSOR_NOW;
+    mboxWrite(&message);
+}
+
+void cmdDssToMsgMssAtNextTimeslot()
+{
+    Ranging_MSS_DSS_Message message;
+    message.messageId = CMD_DSS_TO_START_SENSOR_AT_NEXT_TIMESLOT;
+    mboxWrite(&message);
+}
+
+void cmdDssToStartSensorAtNextTimeslot()
+{
+    Ranging_MSS_DSS_Message message;
+    message.messageId = CMD_DSS_TO_MSG_MSS_AT_NEXT_TIMESLOT;
     mboxWrite(&message);
 }
 

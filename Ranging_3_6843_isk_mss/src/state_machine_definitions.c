@@ -15,6 +15,7 @@
 
 #include <inc/state_machine_definitions.h>
 #include <inc/state_machine_functions.h>
+#include <shared/ranging_rfConfig.h>
 
 const char *  message_to_string_table[SM_MSG_TOTAL_COUNT] = {0};
 const char *  state_to_string_table[STATE_TOTAL_COUNT] = {0};
@@ -31,56 +32,40 @@ void Define_State_Machine( void )
     uint16_t index;
     for(index = 0; index < SM_MSG_TOTAL_COUNT; index++)
     {
-        message_to_string_table[index] = "UNINITIALIZED";
+        message_to_string_table[index] = "MSG_UNINIT";
     }
     message_to_string_table[SM_MSG_INIT]                = "MSG_GO_INIT";
     message_to_string_table[SM_MSG_STANDBY]             = "MSG_GO_STANDBY";
-    message_to_string_table[SM_MSG_CFG_RX]              = "MSG_GO_CFG_RX";
-    message_to_string_table[SM_MSG_CFG_TX]              = "SM_MSG_CFG_TX";
-    message_to_string_table[SM_MSG_ACTIVATE_RX_CFG]     = "SM_MSG_ACTIVATE_RX_CFG";
-    message_to_string_table[SM_MSG_ACTIVATE_TX_CFG]     = "SM_MSG_ACTIVATE_TX_CFG";
-    message_to_string_table[SM_MSG_RX_START_CODE]       = "MSG_GO_RX";
-    message_to_string_table[SM_MSG_RX_RESPONSE_CODE]    = "SM_MSG_RX_RESPONSE_CODE";
-    message_to_string_table[SM_MSG_TX_START_CODE]       = "SM_MSG_TX_START_CODE";
-    message_to_string_table[SM_MSG_TX_RESPONSE_CODE]    = "SM_MSG_TX_RESPONSE_CODE";
-    message_to_string_table[SM_MSG_CODE_DETECT]         = "SM_MSG_CODE_DETECT";
-    message_to_string_table[SM_MSG_NO_CODE_DETECT]      = "SM_MSG_NO_CODE_DETECT";
-    message_to_string_table[SM_MSG_TX_COMPLETE]         = "SM_MSG_TX_COMPLETE";
+    message_to_string_table[SM_MSG_BEGIN_RANGING]       = "MSG_BEGIN_RANGING";
+    message_to_string_table[SM_MSG_SENSOR_STARTED]      = "MSG_SENSOR_STARTED";
+    message_to_string_table[SM_MSG_CFG_NEXT_TIMESLOT]   = "MSG_CFG_NEXT_TIMESLOT";
+    message_to_string_table[SM_MSG_RESULTS_AVAIL]       = "MSG_RESULTS_AVAIL";
     message_to_string_table[SM_MSG_CANCELLED]           = "MSG_CANCELLED";
     message_to_string_table[SM_MSG_FAILED]              = "MSG_FAILED";
     message_to_string_table[SM_MSG_COMPLETED]           = "MSG_COMPLETED";
-    message_to_string_table[SM_MSG_DSS_REPORTS_SUCCESS] = "DSS_SUCCESS";
-    message_to_string_table[SM_MSG_DSS_REPORTS_FAILURE] = "DSS_FAILURE";
-    message_to_string_table[SM_MSG_SENSOR_STARTED]      = "SENSOR_STARTED";
+    message_to_string_table[SM_MSG_DSS_REPORTS_FAILURE] = "MSG_DSS_FAILURE";
+    message_to_string_table[SM_MSG_SENSOR_STARTED]      = "MSG_SENSOR_STARTED";
 
     for(index = 0; index < STATE_TOTAL_COUNT; index++)
     {
-        state_to_string_table[index] = "UNINITIALIZED";
+        state_to_string_table[index] = "STATE_UNINIT";
     }
-    state_to_string_table[STATE_INIT]             = "INIT";
-    state_to_string_table[STATE_STANDBY]          = "STANDBY";
-    state_to_string_table[STATE_CFG_RX]           = "CFG_RX";
-    state_to_string_table[STATE_CFG_TX]           = "CFG_TX";
-    state_to_string_table[STATE_ACTIVATE_RX_CFG]  = "ACTIVATE_RX_CFG";
-    state_to_string_table[STATE_ACTIVATE_TX_CFG]  = "ACTIVATE_TX_CFG";
-    state_to_string_table[STATE_TX_START_CODE]    = "TX_START_CODE";
-    state_to_string_table[STATE_RX_START_CODE]    = "RX_START_CODE";
-    state_to_string_table[STATE_TX_RESPONSE_CODE] = "TX_RSP_CODE";
-    state_to_string_table[STATE_RX_RESPONSE_CODE] = "RX_RSP_CODE";
-    state_to_string_table[STATE_RX_CONTINUE]      = "STATE_RX_CONTINUE";
-    state_to_string_table[STATE_COMPLETED]        = "STATE_COMPLETED";
-    state_to_string_table[STATE_FAILED]           = "STATE_FAILED";
-    state_to_string_table[STATE_CANCELLED]        = "STATE_CANCELLED";
+    state_to_string_table[STATE_INIT]               = "INIT";
+    state_to_string_table[STATE_STANDBY]            = "STANDBY";
+    state_to_string_table[STATE_CFG]                = "CFG";
+    state_to_string_table[STATE_ACTIVATE_CFG]       = "ACTIVATE_CFG";
+    state_to_string_table[STATE_EXECUTE_CFG]        = "START_SENSOR";
+    state_to_string_table[STATE_EXECUTING]          = "EXECUTING";
+    state_to_string_table[STATE_STOP_EXECUTION]     = "STOP";
+    state_to_string_table[STATE_PROCESS_RESULT]     = "PROCESS_RESULT";
+    state_to_string_table[STATE_COMPLETED]          = "STATE_COMPLETED";
+    state_to_string_table[STATE_FAILED]             = "STATE_FAILED";
+    state_to_string_table[STATE_CANCELLED]          = "STATE_CANCELLED";
 
     // Initialization
     State_Machine_States[STATE_INIT].stateMachine                             = &State_Machine;
     State_Machine_States[STATE_INIT].stateExecutionFunction                   = SM_Func_Initialization;
     State_Machine_States[STATE_INIT].stateNumber                              = STATE_INIT;
-    State_Machine_States[STATE_INIT].rxFrequencyInGhz                         = RX_FREQUENCY_GHZ;
-    State_Machine_States[STATE_INIT].txFrequencyInGhz                         = TX_FREQUENCY_GHZ;
-    State_Machine_States[STATE_INIT].txPrn                                    = DEFAULT_PRN;
-    State_Machine_States[STATE_INIT].rxPrn                                    = DEFAULT_PRN;
-    State_Machine_States[STATE_INIT].goldCodeNumBits                          = GOLD_CODE_NUM_BITS;
     State_Machine_States[STATE_INIT].previousStateInfo_ptr                    = &State_Machine_States[STATE_INIT];
     State_Machine_States[STATE_INIT].stateTransitionTable[SM_MSG_INIT]        = &State_Machine_States[STATE_INIT];
     State_Machine_States[STATE_INIT].stateTransitionTable[SM_MSG_STANDBY]     = &State_Machine_States[STATE_STANDBY];
@@ -89,152 +74,88 @@ void Define_State_Machine( void )
     State_Machine_States[STATE_INIT].stateTransitionTable[SM_MSG_CANCELLED]   = &State_Machine_States[STATE_CANCELLED];
 
     // Standby
-    State_Machine_States[STATE_STANDBY].stateMachine                                  = &State_Machine;
-    State_Machine_States[STATE_STANDBY].stateExecutionFunction                        = SM_Func_Standby;
-    State_Machine_States[STATE_STANDBY].stateNumber                                   = STATE_STANDBY;
-    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_INIT]             = &State_Machine_States[STATE_INIT];
-    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_STANDBY]          = &State_Machine_States[STATE_STANDBY];
-    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_CFG_RX]           = &State_Machine_States[STATE_CFG_RX];
-    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_CFG_TX]           = &State_Machine_States[STATE_CFG_TX];
-    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_ACTIVATE_RX_CFG]  = &State_Machine_States[STATE_ACTIVATE_RX_CFG];
-    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_ACTIVATE_TX_CFG]  = &State_Machine_States[STATE_ACTIVATE_TX_CFG];
-    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_TX_START_CODE]    = &State_Machine_States[STATE_TX_START_CODE];
-    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_TX_RESPONSE_CODE] = &State_Machine_States[STATE_TX_RESPONSE_CODE];
-    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_RX_START_CODE]    = &State_Machine_States[STATE_RX_START_CODE];
-    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_RX_RESPONSE_CODE] = &State_Machine_States[STATE_RX_RESPONSE_CODE];
-    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_FAILED]           = &State_Machine_States[STATE_FAILED];
-    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_CANCELLED]        = &State_Machine_States[STATE_CANCELLED];
+    State_Machine_States[STATE_STANDBY].stateMachine                                    = &State_Machine;
+    State_Machine_States[STATE_STANDBY].stateExecutionFunction                          = SM_Func_Standby;
+    State_Machine_States[STATE_STANDBY].stateNumber                                     = STATE_STANDBY;
+    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_INIT]               = &State_Machine_States[STATE_INIT];
+    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_STANDBY]            = &State_Machine_States[STATE_STANDBY];
+    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_FAILED]             = &State_Machine_States[STATE_FAILED];
+    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_CANCELLED]          = &State_Machine_States[STATE_CANCELLED];
+    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_BEGIN_RANGING]      = &State_Machine_States[STATE_CFG];
+    State_Machine_States[STATE_STANDBY].stateTransitionTable[SM_MSG_UPDATE_TIMESLOT_LIST]   = &State_Machine_States[STATE_UPDATE_TIMESLOTS];
 
-    // Configure TX
-    State_Machine_States[STATE_CFG_TX].stateMachine                           = &State_Machine;
-    State_Machine_States[STATE_CFG_TX].stateExecutionFunction                 = SM_Func_Cfg_Tx;
-    State_Machine_States[STATE_CFG_TX].stateNumber                            = STATE_CFG_TX;
-    State_Machine_States[STATE_CFG_TX].txFrequencyInGhz                       = TX_FREQUENCY_GHZ;
-    State_Machine_States[STATE_CFG_TX].txPrn                                  = DEFAULT_PRN;
-    State_Machine_States[STATE_CFG_TX].rxPrn                                  = DEFAULT_PRN;
-    State_Machine_States[STATE_CFG_TX].goldCodeNumBits                        = GOLD_CODE_NUM_BITS;
-    State_Machine_States[STATE_CFG_TX].stateTransitionTable[SM_MSG_INIT]      = &State_Machine_States[STATE_INIT];
-    State_Machine_States[STATE_CFG_TX].stateTransitionTable[SM_MSG_STANDBY]   = &State_Machine_States[STATE_STANDBY];
-    State_Machine_States[STATE_CFG_TX].stateTransitionTable[SM_MSG_FAILED]    = &State_Machine_States[STATE_FAILED];
-    State_Machine_States[STATE_CFG_TX].stateTransitionTable[SM_MSG_CANCELLED] = &State_Machine_States[STATE_CANCELLED];
+    // Update time slots
+    State_Machine_States[STATE_UPDATE_TIMESLOTS].stateMachine                           = &State_Machine;
+    State_Machine_States[STATE_UPDATE_TIMESLOTS].stateExecutionFunction                 = SM_Func_Update_List_Of_Timeslots;
+    State_Machine_States[STATE_UPDATE_TIMESLOTS].stateNumber                            = STATE_UPDATE_TIMESLOTS;
+    State_Machine_States[STATE_UPDATE_TIMESLOTS].stateTransitionTable[SM_MSG_INIT]      = &State_Machine_States[STATE_INIT];
+    State_Machine_States[STATE_UPDATE_TIMESLOTS].stateTransitionTable[SM_MSG_STANDBY]   = &State_Machine_States[STATE_STANDBY];
+    State_Machine_States[STATE_UPDATE_TIMESLOTS].stateTransitionTable[SM_MSG_FAILED]    = &State_Machine_States[STATE_FAILED];
+    State_Machine_States[STATE_UPDATE_TIMESLOTS].stateTransitionTable[SM_MSG_CANCELLED] = &State_Machine_States[STATE_CANCELLED];
+    State_Machine_States[STATE_UPDATE_TIMESLOTS].stateTransitionTable[SM_MSG_COMPLETED] = &State_Machine_States[STATE_STANDBY];
 
-    // Activate TX CFG
-    State_Machine_States[STATE_ACTIVATE_TX_CFG].stateMachine                              = &State_Machine;
-    State_Machine_States[STATE_ACTIVATE_TX_CFG].stateExecutionFunction                    = SM_Func_Activate_Tx_Cfg;
-    State_Machine_States[STATE_ACTIVATE_TX_CFG].stateNumber                               = STATE_ACTIVATE_TX_CFG;
-    State_Machine_States[STATE_ACTIVATE_TX_CFG].txFrequencyInGhz                          = TX_FREQUENCY_GHZ;
-    State_Machine_States[STATE_ACTIVATE_TX_CFG].txPrn                                     = DEFAULT_PRN;
-    State_Machine_States[STATE_ACTIVATE_TX_CFG].rxPrn                                     = DEFAULT_PRN;
-    State_Machine_States[STATE_ACTIVATE_TX_CFG].goldCodeNumBits                           = GOLD_CODE_NUM_BITS;
-    State_Machine_States[STATE_ACTIVATE_TX_CFG].stateTransitionTable[SM_MSG_INIT]         = &State_Machine_States[STATE_INIT];
-    State_Machine_States[STATE_ACTIVATE_TX_CFG].stateTransitionTable[SM_MSG_STANDBY]      = &State_Machine_States[STATE_STANDBY];
-    State_Machine_States[STATE_ACTIVATE_TX_CFG].stateTransitionTable[SM_MSG_FAILED]       = &State_Machine_States[STATE_FAILED];
-    State_Machine_States[STATE_ACTIVATE_TX_CFG].stateTransitionTable[SM_MSG_CANCELLED]    = &State_Machine_States[STATE_CANCELLED];
+    // Configure
+    State_Machine_States[STATE_CFG].stateMachine                            = &State_Machine;
+    State_Machine_States[STATE_CFG].stateExecutionFunction                  = SM_Func_Cfg;
+    State_Machine_States[STATE_CFG].stateNumber                             = STATE_CFG;
+    State_Machine_States[STATE_CFG].stateTransitionTable[SM_MSG_INIT]       = &State_Machine_States[STATE_INIT];
+    State_Machine_States[STATE_CFG].stateTransitionTable[SM_MSG_STANDBY]    = &State_Machine_States[STATE_STANDBY];
+    State_Machine_States[STATE_CFG].stateTransitionTable[SM_MSG_FAILED]     = &State_Machine_States[STATE_FAILED];
+    State_Machine_States[STATE_CFG].stateTransitionTable[SM_MSG_CANCELLED]  = &State_Machine_States[STATE_CANCELLED];
+    State_Machine_States[STATE_CFG].stateTransitionTable[SM_MSG_COMPLETED]  = &State_Machine_States[STATE_ACTIVATE_CFG];
 
-    // TX Start Code
-    State_Machine_States[STATE_TX_START_CODE].stateMachine                                = &State_Machine;
-    State_Machine_States[STATE_TX_START_CODE].stateExecutionFunction                      = SM_Func_Tx_Start_Code;
-    State_Machine_States[STATE_TX_START_CODE].stateNumber                                 = STATE_TX_START_CODE;
-    State_Machine_States[STATE_TX_START_CODE].txFrequencyInGhz                            = TX_FREQUENCY_GHZ;
-    State_Machine_States[STATE_TX_START_CODE].txPrn                                       = DEFAULT_PRN;
-    State_Machine_States[STATE_TX_START_CODE].rxPrn                                       = DEFAULT_PRN;
-    State_Machine_States[STATE_TX_START_CODE].goldCodeNumBits                             = GOLD_CODE_NUM_BITS;
-    State_Machine_States[STATE_TX_START_CODE].stateTransitionTable[SM_MSG_INIT]           = &State_Machine_States[STATE_INIT];
-    State_Machine_States[STATE_TX_START_CODE].stateTransitionTable[SM_MSG_STANDBY]        = &State_Machine_States[STATE_STANDBY];
-    State_Machine_States[STATE_TX_START_CODE].stateTransitionTable[SM_MSG_TX_COMPLETE]    = &State_Machine_States[STATE_ACTIVATE_RX_CFG];
-    State_Machine_States[STATE_TX_START_CODE].stateTransitionTable[SM_MSG_FAILED]         = &State_Machine_States[STATE_FAILED];
-    State_Machine_States[STATE_TX_START_CODE].stateTransitionTable[SM_MSG_CANCELLED]      = &State_Machine_States[STATE_CANCELLED];
+    // Activate CFG
+    State_Machine_States[STATE_ACTIVATE_CFG].stateMachine                               = &State_Machine;
+    State_Machine_States[STATE_ACTIVATE_CFG].stateExecutionFunction                     = SM_Func_Activate_Cfg;
+    State_Machine_States[STATE_ACTIVATE_CFG].stateNumber                                = STATE_ACTIVATE_CFG;
+    State_Machine_States[STATE_ACTIVATE_CFG].stateTransitionTable[SM_MSG_INIT]          = &State_Machine_States[STATE_INIT];
+    State_Machine_States[STATE_ACTIVATE_CFG].stateTransitionTable[SM_MSG_STANDBY]       = &State_Machine_States[STATE_STANDBY];
+    State_Machine_States[STATE_ACTIVATE_CFG].stateTransitionTable[SM_MSG_FAILED]        = &State_Machine_States[STATE_FAILED];
+    State_Machine_States[STATE_ACTIVATE_CFG].stateTransitionTable[SM_MSG_CANCELLED]     = &State_Machine_States[STATE_CANCELLED];
+    State_Machine_States[STATE_ACTIVATE_CFG].stateTransitionTable[SM_MSG_COMPLETED]     = &State_Machine_States[STATE_EXECUTE_CFG];
 
-    // TX Response Code
-    State_Machine_States[STATE_TX_RESPONSE_CODE].stateMachine                             = &State_Machine;
-    State_Machine_States[STATE_TX_RESPONSE_CODE].stateExecutionFunction                   = SM_Func_Tx_Response_Code;
-    State_Machine_States[STATE_TX_RESPONSE_CODE].stateNumber                              = STATE_TX_RESPONSE_CODE;
-    State_Machine_States[STATE_TX_RESPONSE_CODE].txFrequencyInGhz                         = TX_FREQUENCY_GHZ;
-    State_Machine_States[STATE_TX_RESPONSE_CODE].txPrn                                    = DEFAULT_PRN;
-    State_Machine_States[STATE_TX_RESPONSE_CODE].rxPrn                                    = DEFAULT_PRN;
-    State_Machine_States[STATE_TX_RESPONSE_CODE].goldCodeNumBits                          = GOLD_CODE_NUM_BITS;
-    State_Machine_States[STATE_TX_RESPONSE_CODE].stateTransitionTable[SM_MSG_INIT]        = &State_Machine_States[STATE_INIT];
-    State_Machine_States[STATE_TX_RESPONSE_CODE].stateTransitionTable[SM_MSG_STANDBY]     = &State_Machine_States[STATE_STANDBY];
-    State_Machine_States[STATE_TX_RESPONSE_CODE].stateTransitionTable[SM_MSG_COMPLETED]   = &State_Machine_States[STATE_STANDBY];
-    State_Machine_States[STATE_TX_RESPONSE_CODE].stateTransitionTable[SM_MSG_TX_COMPLETE] = &State_Machine_States[STATE_STANDBY];
-    State_Machine_States[STATE_TX_RESPONSE_CODE].stateTransitionTable[SM_MSG_FAILED]      = &State_Machine_States[STATE_FAILED];
-    State_Machine_States[STATE_TX_RESPONSE_CODE].stateTransitionTable[SM_MSG_CANCELLED]   = &State_Machine_States[STATE_CANCELLED];
+    // EXECUTE
+    State_Machine_States[STATE_EXECUTE_CFG].stateMachine                                    = &State_Machine;
+    State_Machine_States[STATE_EXECUTE_CFG].stateExecutionFunction                          = SM_Func_Execute_Cfg;
+    State_Machine_States[STATE_EXECUTE_CFG].stateNumber                                     = STATE_EXECUTE_CFG;
+    State_Machine_States[STATE_EXECUTE_CFG].stateTransitionTable[SM_MSG_INIT]               = &State_Machine_States[STATE_INIT];
+    State_Machine_States[STATE_EXECUTE_CFG].stateTransitionTable[SM_MSG_STANDBY]            = &State_Machine_States[STATE_STANDBY];
+    State_Machine_States[STATE_EXECUTE_CFG].stateTransitionTable[SM_MSG_FAILED]             = &State_Machine_States[STATE_FAILED];
+    State_Machine_States[STATE_EXECUTE_CFG].stateTransitionTable[SM_MSG_CANCELLED]          = &State_Machine_States[STATE_CANCELLED];
+    State_Machine_States[STATE_EXECUTE_CFG].stateTransitionTable[SM_MSG_SENSOR_STARTED]     = &State_Machine_States[STATE_EXECUTING];   // RX or TX
+    State_Machine_States[STATE_EXECUTE_CFG].stateTransitionTable[SM_MSG_TIMESLOT_STARTED]   = &State_Machine_States[STATE_EXECUTING];   // NO-OP
 
-    // Configure RX
-    State_Machine_States[STATE_CFG_RX].stateMachine                                   = &State_Machine;
-    State_Machine_States[STATE_CFG_RX].stateExecutionFunction                         = SM_Func_Cfg_Rx;
-    State_Machine_States[STATE_CFG_RX].stateNumber                                    = STATE_CFG_RX;
-    State_Machine_States[STATE_CFG_RX].txPrn                                          = DEFAULT_PRN;
-    State_Machine_States[STATE_CFG_RX].rxPrn                                          = DEFAULT_PRN;
-    State_Machine_States[STATE_CFG_RX].goldCodeNumBits                                = GOLD_CODE_NUM_BITS;
-    State_Machine_States[STATE_CFG_RX].rxFrequencyInGhz                               = RX_FREQUENCY_GHZ;
-    State_Machine_States[STATE_CFG_RX].stateTransitionTable[SM_MSG_INIT]              = &State_Machine_States[STATE_INIT];
-    State_Machine_States[STATE_CFG_RX].stateTransitionTable[SM_MSG_STANDBY]           = &State_Machine_States[STATE_STANDBY];
-    State_Machine_States[STATE_CFG_RX].stateTransitionTable[SM_MSG_RX_START_CODE]     = &State_Machine_States[STATE_RX_START_CODE];
-    State_Machine_States[STATE_CFG_RX].stateTransitionTable[SM_MSG_RX_RESPONSE_CODE]  = &State_Machine_States[STATE_RX_RESPONSE_CODE];
-    State_Machine_States[STATE_CFG_RX].stateTransitionTable[SM_MSG_ACTIVATE_RX_CFG]   = &State_Machine_States[STATE_ACTIVATE_RX_CFG];
-    State_Machine_States[STATE_CFG_RX].stateTransitionTable[SM_MSG_FAILED]            = &State_Machine_States[STATE_FAILED];
-    State_Machine_States[STATE_CFG_RX].stateTransitionTable[SM_MSG_CANCELLED]         = &State_Machine_States[STATE_CANCELLED];
+    // EXECUTING
+    State_Machine_States[STATE_EXECUTING].stateMachine                                      = &State_Machine;
+    State_Machine_States[STATE_EXECUTING].stateExecutionFunction                            = SM_Func_Executing;
+    State_Machine_States[STATE_EXECUTING].stateNumber                                       = STATE_EXECUTING;
+    State_Machine_States[STATE_EXECUTING].stateTransitionTable[SM_MSG_INIT]                 = &State_Machine_States[STATE_INIT];
+    State_Machine_States[STATE_EXECUTING].stateTransitionTable[SM_MSG_STANDBY]              = &State_Machine_States[STATE_STANDBY];
+    State_Machine_States[STATE_EXECUTING].stateTransitionTable[SM_MSG_FAILED]               = &State_Machine_States[STATE_FAILED];
+    State_Machine_States[STATE_EXECUTING].stateTransitionTable[SM_MSG_CANCELLED]            = &State_Machine_States[STATE_CANCELLED];
+    State_Machine_States[STATE_EXECUTING].stateTransitionTable[SM_MSG_RESULTS_AVAIL]        = &State_Machine_States[STATE_PROCESS_RESULT];  // Results from sensor, stop the sensor then process
+    State_Machine_States[STATE_EXECUTING].stateTransitionTable[SM_MSG_CFG_NEXT_TIMESLOT]    = &State_Machine_States[STATE_CFG];             // If this state is a NO-OP
 
-    // Activate Rx CFG
-    State_Machine_States[STATE_ACTIVATE_RX_CFG].stateMachine                                    = &State_Machine;
-    State_Machine_States[STATE_ACTIVATE_RX_CFG].stateExecutionFunction                          = SM_Func_Activate_Rx_Cfg;
-    State_Machine_States[STATE_ACTIVATE_RX_CFG].stateNumber                                     = STATE_ACTIVATE_RX_CFG;
-    State_Machine_States[STATE_ACTIVATE_RX_CFG].rxFrequencyInGhz                                = RX_FREQUENCY_GHZ;
-    State_Machine_States[STATE_ACTIVATE_RX_CFG].txPrn                                           = DEFAULT_PRN;
-    State_Machine_States[STATE_ACTIVATE_RX_CFG].rxPrn                                           = DEFAULT_PRN;
-    State_Machine_States[STATE_ACTIVATE_RX_CFG].goldCodeNumBits                                 = GOLD_CODE_NUM_BITS;
-    State_Machine_States[STATE_ACTIVATE_RX_CFG].stateTransitionTable[SM_MSG_INIT]               = &State_Machine_States[STATE_INIT];
-    State_Machine_States[STATE_ACTIVATE_RX_CFG].stateTransitionTable[SM_MSG_STANDBY]            = &State_Machine_States[STATE_STANDBY];
-    State_Machine_States[STATE_ACTIVATE_RX_CFG].stateTransitionTable[SM_MSG_RX_START_CODE]      = &State_Machine_States[STATE_RX_START_CODE];
-    State_Machine_States[STATE_ACTIVATE_RX_CFG].stateTransitionTable[SM_MSG_RX_RESPONSE_CODE]   = &State_Machine_States[STATE_RX_RESPONSE_CODE];
-    State_Machine_States[STATE_ACTIVATE_RX_CFG].stateTransitionTable[SM_MSG_FAILED]             = &State_Machine_States[STATE_FAILED];
-    State_Machine_States[STATE_ACTIVATE_RX_CFG].stateTransitionTable[SM_MSG_CANCELLED]          = &State_Machine_States[STATE_CANCELLED];
+    // STOP EXECUTION
+    State_Machine_States[STATE_STOP_EXECUTION].stateMachine                             = &State_Machine;
+    State_Machine_States[STATE_STOP_EXECUTION].stateExecutionFunction                   = SM_Func_Stop;
+    State_Machine_States[STATE_STOP_EXECUTION].stateNumber                              = STATE_STOP_EXECUTION;
+    State_Machine_States[STATE_STOP_EXECUTION].stateTransitionTable[SM_MSG_INIT]        = &State_Machine_States[STATE_INIT];
+    State_Machine_States[STATE_STOP_EXECUTION].stateTransitionTable[SM_MSG_STANDBY]     = &State_Machine_States[STATE_STANDBY];
+    State_Machine_States[STATE_STOP_EXECUTION].stateTransitionTable[SM_MSG_FAILED]      = &State_Machine_States[STATE_FAILED];
+    State_Machine_States[STATE_STOP_EXECUTION].stateTransitionTable[SM_MSG_CANCELLED]   = &State_Machine_States[STATE_CANCELLED];
+    State_Machine_States[STATE_STOP_EXECUTION].stateTransitionTable[SM_MSG_COMPLETED]   = &State_Machine_States[STATE_PROCESS_RESULT];
 
-    // RX Start Code
-    State_Machine_States[STATE_RX_START_CODE].stateMachine                                      = &State_Machine;
-    State_Machine_States[STATE_RX_START_CODE].stateExecutionFunction                            = SM_Func_Rx;
-    State_Machine_States[STATE_RX_START_CODE].stateNumber                                       = STATE_RX_START_CODE;
-    State_Machine_States[STATE_RX_START_CODE].rxFrequencyInGhz                                  = RX_FREQUENCY_GHZ;
-    State_Machine_States[STATE_RX_START_CODE].txPrn                                             = DEFAULT_PRN;
-    State_Machine_States[STATE_RX_START_CODE].rxPrn                                             = DEFAULT_PRN;
-    State_Machine_States[STATE_RX_START_CODE].goldCodeNumBits                                   = GOLD_CODE_NUM_BITS;
-    State_Machine_States[STATE_RX_START_CODE].stateTransitionTable[SM_MSG_INIT]                 = &State_Machine_States[STATE_INIT];
-    State_Machine_States[STATE_RX_START_CODE].stateTransitionTable[SM_MSG_STANDBY]              = &State_Machine_States[STATE_STANDBY];
-    State_Machine_States[STATE_RX_START_CODE].stateTransitionTable[SM_MSG_SENSOR_STARTED]       = &State_Machine_States[STATE_RX_CONTINUE];
-    State_Machine_States[STATE_RX_START_CODE].stateTransitionTable[SM_MSG_DSS_REPORTS_FAILURE]  = &State_Machine_States[STATE_FAILED];
-    State_Machine_States[STATE_RX_START_CODE].stateTransitionTable[SM_MSG_FAILED]               = &State_Machine_States[STATE_FAILED];
-    State_Machine_States[STATE_RX_START_CODE].stateTransitionTable[SM_MSG_CANCELLED]            = &State_Machine_States[STATE_CANCELLED];
-
-    // RX Response Code
-    State_Machine_States[STATE_RX_RESPONSE_CODE].stateMachine                                   = &State_Machine;
-    State_Machine_States[STATE_RX_RESPONSE_CODE].stateExecutionFunction                         = SM_Func_Rx;
-    State_Machine_States[STATE_RX_RESPONSE_CODE].stateNumber                                    = STATE_RX_RESPONSE_CODE;
-    State_Machine_States[STATE_RX_RESPONSE_CODE].rxFrequencyInGhz                               = RX_FREQUENCY_GHZ;
-    State_Machine_States[STATE_RX_RESPONSE_CODE].txPrn                                          = DEFAULT_PRN;
-    State_Machine_States[STATE_RX_RESPONSE_CODE].rxPrn                                          = DEFAULT_PRN;
-    State_Machine_States[STATE_RX_RESPONSE_CODE].goldCodeNumBits                                = GOLD_CODE_NUM_BITS;
-    State_Machine_States[STATE_RX_RESPONSE_CODE].stateTransitionTable[SM_MSG_INIT]              = &State_Machine_States[STATE_INIT];
-    State_Machine_States[STATE_RX_RESPONSE_CODE].stateTransitionTable[SM_MSG_STANDBY]           = &State_Machine_States[STATE_STANDBY];
-    State_Machine_States[STATE_RX_RESPONSE_CODE].stateTransitionTable[SM_MSG_COMPLETED]         = &State_Machine_States[STATE_STANDBY];
-    State_Machine_States[STATE_RX_RESPONSE_CODE].stateTransitionTable[SM_MSG_FAILED]            = &State_Machine_States[STATE_FAILED];
-    State_Machine_States[STATE_RX_RESPONSE_CODE].stateTransitionTable[SM_MSG_CANCELLED]         = &State_Machine_States[STATE_CANCELLED];
-    State_Machine_States[STATE_RX_RESPONSE_CODE].stateTransitionTable[SM_MSG_NO_CODE_DETECT]    = &State_Machine_States[STATE_ACTIVATE_TX_CFG];
-
-    // RX Continue
-    State_Machine_States[STATE_RX_CONTINUE].stateMachine                                = &State_Machine;
-    State_Machine_States[STATE_RX_CONTINUE].stateExecutionFunction                      = SM_Func_No_Operation;
-    State_Machine_States[STATE_RX_CONTINUE].stateNumber                                 = STATE_RX_CONTINUE;
-    State_Machine_States[STATE_RX_CONTINUE].rxFrequencyInGhz                            = RX_FREQUENCY_GHZ;
-    State_Machine_States[STATE_RX_CONTINUE].txPrn                                       = DEFAULT_PRN;
-    State_Machine_States[STATE_RX_CONTINUE].rxPrn                                       = DEFAULT_PRN;
-    State_Machine_States[STATE_RX_CONTINUE].goldCodeNumBits                             = GOLD_CODE_NUM_BITS;
-    State_Machine_States[STATE_RX_CONTINUE].stateTransitionTable[SM_MSG_INIT]           = &State_Machine_States[STATE_INIT];
-    State_Machine_States[STATE_RX_CONTINUE].stateTransitionTable[SM_MSG_STANDBY]        = &State_Machine_States[STATE_STANDBY];
-    State_Machine_States[STATE_RX_CONTINUE].stateTransitionTable[SM_MSG_CODE_DETECT]    = &State_Machine_States[STATE_RX_CONTINUE];
-    State_Machine_States[STATE_RX_CONTINUE].stateTransitionTable[SM_MSG_NO_CODE_DETECT] = &State_Machine_States[STATE_RX_CONTINUE];
-    State_Machine_States[STATE_RX_CONTINUE].stateTransitionTable[SM_MSG_FAILED]         = &State_Machine_States[STATE_FAILED];
-    State_Machine_States[STATE_RX_CONTINUE].stateTransitionTable[SM_MSG_CANCELLED]      = &State_Machine_States[STATE_CANCELLED];
+    // Results Available
+    State_Machine_States[STATE_PROCESS_RESULT].stateMachine                                     = &State_Machine;
+    State_Machine_States[STATE_PROCESS_RESULT].stateExecutionFunction                           = SM_Func_Process_Result;
+    State_Machine_States[STATE_PROCESS_RESULT].stateNumber                                      = STATE_PROCESS_RESULT;
+    State_Machine_States[STATE_PROCESS_RESULT].stateTransitionTable[SM_MSG_INIT]                = &State_Machine_States[STATE_INIT];
+    State_Machine_States[STATE_PROCESS_RESULT].stateTransitionTable[SM_MSG_STANDBY]             = &State_Machine_States[STATE_STANDBY];
+    State_Machine_States[STATE_PROCESS_RESULT].stateTransitionTable[SM_MSG_FAILED]              = &State_Machine_States[STATE_FAILED];
+    State_Machine_States[STATE_PROCESS_RESULT].stateTransitionTable[SM_MSG_CANCELLED]           = &State_Machine_States[STATE_CANCELLED];
+    State_Machine_States[STATE_PROCESS_RESULT].stateTransitionTable[SM_MSG_RESULTS_AVAIL]       = &State_Machine_States[STATE_PROCESS_RESULT];
+    State_Machine_States[STATE_PROCESS_RESULT].stateTransitionTable[SM_MSG_CFG_NEXT_TIMESLOT]   = &State_Machine_States[STATE_CFG];
 
     // Completed
     State_Machine_States[STATE_COMPLETED].stateMachine                                  = &State_Machine;

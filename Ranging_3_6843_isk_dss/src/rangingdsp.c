@@ -72,6 +72,7 @@
 #include <inc/gold_code.h>
 #include <inc/line_fit.h>
 #include <inc/computed_twiddle_factor.h>
+#include <shared/ranging_rfConfig.h>
 
 /* MATH utils library Include files */
 #include <ti/utils/mathutils/mathutils.h>
@@ -87,6 +88,9 @@
 #define pingPongId(x) ((x) & 0x1U)
 #define isPong(x) (pingPongId(x) == 1U)
 #define BYTES_PER_SAMP_1D   sizeof(cmplx16ImRe_t)
+
+
+#pragma SET_CODE_SECTION(".l1pcode")
 
 /////////////////////////////////////////////////////////////////////////
 //                  Internal Function prototype
@@ -472,6 +476,7 @@ static int32_t rangingDSP_ParseConfig
     rangingObj->iFftDataL3                  = (cmplx32ImRe_t *)(((char *)rangingObj->vectorMultiplyOfFFtedDataL3)    + 2 * pStaticCfg->ADCBufData.dataSize); // Each value 4 bytes
     rangingObj->magIfftDataL3               = (uint32_t      *)(((char *)rangingObj->iFftDataL3)            + 2 * pStaticCfg->ADCBufData.dataSize);     // Each value 4 bytes, but only 1 value per sample
     rangingObj->fftGoldCodeL3_16kB          = (cmplx16ImRe_t *)(((char *)rangingObj->magIfftDataL3)         + pStaticCfg->ADCBufData.dataSize); // Each value 2 bytes
+    rangingObj->ifftTwiddle16x16L3_16kB     = (cmplx16ImRe_t *)(((char *)rangingObj->fftGoldCodeL3_16kB)    + pStaticCfg->ADCBufData.dataSize); // Each value 2 bytes
     rangingObj->fftTwiddle16x16L3_16kB      = (cmplx16ImRe_t *)twiddle_factors;     // Each value 2 bytes
 
     /* Save Scratch buffers */
@@ -575,9 +580,9 @@ int32_t DPU_RangingDSP_config
     int32_t                     retVal = 0;
     gold_code_struct_t          gold_code;
     gold_code_struct_t          sampled_gold_code;
-    double                      sample_rate      = 4000000;
-    double                      chip_duration    = 0.000006;
-    double                      zeros_duration   = 0.000003;
+    double                      sample_rate      = RX_SAMPLE_RATE_KSPS * 1000;
+    double                      chip_duration    = ((double)TX_RAMP_DURATION_US)/((double)1000000.0);
+    double                      zeros_duration   = ((double)TX_IDLE_TIME_US)/((double)1000000.0);
     int16_t                     index;
     int16_t                     first_non_zero_index = -1;
     int16_t                     last_non_zero_index = -1;
@@ -651,12 +656,6 @@ int32_t DPU_RangingDSP_config
     {
         goto exit;
     }
-
-    ////////////////////////////////////////////////////
-    // THIS MUST BE UNCOMMENTED FOR IT TO WORK - takes up ~ 3K of program space!
-    ////////////////////////////////////////////////////
-    // Generate twiddle factors for 1D FFT. This is one time
-    //mmwavelib_gen_twiddle_fft16x16_imre_sa((short *)rangingObj->fftTwiddle16x16L2_16kB, rangingObj->DPParams.numAdcSamples);
 
     memcpy(rangingObj->fftTwiddle16x16L2_16kB, twiddle_factors, rangingObj->DPParams.numAdcSamples * sizeof(cmplx16ImRe_t) );
 
@@ -975,6 +974,10 @@ int32_t DPU_RangingDSP_process
         uint16_t            num_line_fit_points     = 11;
         cmplx16ImRe_t *     scratchPageTwo_L2_16kB  = rangingObj->scratchBufferTwoL2_32kB + DPParams->numAdcSamples;
 
+        // fftTwiddle16x16L2_16kB            - 16kB - scratchBufferOneL2_32kB first 16kB
+        // localGoldCodeFFTBufferL2_16kB     - 16kB - scratchBufferOneL2_32kB last  16kB
+        // ifftTwiddle16x16L2_16kB           - 16kB
+        // scratchBufferL2_32kB              - 32kB
         // scratchBufferOneL2_32kB is 32kB contiguous RAM from fftTwiddle16x16L2_16kB and localGoldCodeFFTBufferL2_16kB
         cmplx32ImRe_t *     ifftBuffer              = (cmplx32ImRe_t *) rangingObj->scratchBufferOneL2_32kB;
         float         *     ifftMagnitudeBuffer     = (float *)      rangingObj->scratchBufferTwoL2_32kB;

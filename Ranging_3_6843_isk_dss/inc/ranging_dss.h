@@ -51,6 +51,7 @@
 
 #include <inc/ranging_output.h>
 #include <inc/ranging_dpc.h>
+#include <shared/ranging_timeslot.h>
 
 /* This is used to resolve RL_MAX_SUBFRAMES, TODO: wired */
 #include <ti/control/mmwavelink/mmwavelink.h>
@@ -137,6 +138,12 @@ typedef struct Ranging_DSS_MCB_t
 
     /*! @brief   mmWave Open Configuration. */
     MMWave_OpenCfg              openCfg;
+
+    /*! @brief   Current time slot */
+    rangingTimeSlot_t           currentTimeslot;
+
+    /*! @brief   Next up time slot */
+    rangingTimeSlot_t           nextTimeslot;
 
     /*! @brief    Sensor state */
     Ranging_SensorState         sensorState;

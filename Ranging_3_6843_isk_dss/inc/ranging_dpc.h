@@ -586,10 +586,16 @@ typedef struct DPC_Ranging_Data_t
     Ranging_PRN_Detection_Stats detectionStats;
 
     /*! @brief  Chirp start time from TSCH */
-    int32_t     chirpStartTimeHigh;
+    uint32_t     chirpStartTimeHigh;
 
     /*! @brief  Chirp start time from TSCL */
-    int32_t     chirpStartTimeLow;
+    uint32_t     chirpStartTimeLow;
+
+    /*! @brief  Frame start time from TSCH */
+    uint32_t     frameStartTimeHigh;
+
+    /*! @brief  Frame start time from TSCL */
+    uint32_t     frameStartTimeLow;
 
     /*! @brief  Response start time from TSCH */
     int32_t     responseStartTimeHigh;

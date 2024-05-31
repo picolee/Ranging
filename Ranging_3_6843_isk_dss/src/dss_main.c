@@ -82,6 +82,7 @@
 #include <inc/ranging_dss.h>
 #include <inc/ranging_res.h>
 #include <shared/ranging_mailbox.h>
+#include <inc/dss_mmwave_sensor_interface.h>
 
 #include <inc/countdown_timer.h>
 
@@ -121,6 +122,9 @@ uint8_t gDPC_ObjDetL1Heap[RANGING_OBJDET_L1RAM_SIZE];
 #pragma DATA_ALIGN(gHSRAM, 4);
 
 #define DPC_OBJDET_DSP_INSTANCEID       (0xDEEDDEED)
+
+
+#pragma SET_CODE_SECTION(".l1pcode")
 
 /**************************************************************************
  *************************** Global Definitions ***************************
@@ -335,244 +339,6 @@ static void Ranging_sensorStopEpilog(void)
                       stackInfo.hwiStackSize - stackInfo.hwiStackPeak);
     }
 */
-}
-
-/**
- *  @b Description
- *  @n
- *      Registered event function to mmwave which is invoked when an event from the
- *      BSS is received.
- *
- *  @param[in]  msgId
- *      Message Identifier
- *  @param[in]  sbId
- *      Subblock identifier
- *  @param[in]  sbLen
- *      Length of the subblock
- *  @param[in]  payload
- *      Pointer to the payload buffer
- *
- *  @retval
- *      Always return 0
- */
-static int32_t Ranging_eventCallbackFxn(uint16_t msgId, uint16_t sbId, uint16_t sbLen, uint8_t *payload)
-{
-    uint16_t asyncSB = RL_GET_SBID_FROM_UNIQ_SBID(sbId);
-
-    /* Process the received message: //
-    switch (msgId)
-    {
-        case RL_RF_ASYNC_EVENT_MSG:
-        {
-            // Received Asychronous Message: //
-            switch (asyncSB)
-            {
-                case RL_RF_AE_CPUFAULT_SB:
-                {
-                    rlCpuFault_t *rfCpuFault = (rlCpuFault_t *)payload;
-                    System_printf("Debug: CPU Fault has been detected\n");
-                    CLI_write("ERROR: Fault \n type: %d, lineNum: %d, LR: 0x%x \n"
-                                "PrevLR: 0x%x, spsr: 0x%x, sp: 0x%x, PC: 0x%x \n"
-                                "Status: 0x%x, Source: %d, AxiErrType: %d, AccType: %d, Recovery Type: %d \n",
-                                rfCpuFault->faultType,
-                                rfCpuFault->lineNum,
-                                rfCpuFault->faultLR,
-                                rfCpuFault->faultPrevLR,
-                                rfCpuFault->faultSpsr,
-                                rfCpuFault->faultSp,
-                                rfCpuFault->faultAddr,
-                                rfCpuFault->faultErrStatus,
-                                rfCpuFault->faultErrSrc,
-                                rfCpuFault->faultAxiErrType,
-                                rfCpuFault->faultAccType,
-                                rfCpuFault->faultRecovType);
-                    Ranging_debugAssert(0);
-                    break;
-                }
-                case RL_RF_AE_ESMFAULT_SB:
-                {
-                    CLI_write("ERROR: ESM Fault. Group1:[0x%x] Group2:[0x%x]\n",
-                                ((rlBssEsmFault_t *)payload)->esmGrp1Err,
-                                ((rlBssEsmFault_t *)payload)->esmGrp2Err);
-                    Ranging_debugAssert(0);
-                    break;
-                }
-                case RL_RF_AE_ANALOG_FAULT_SB:
-                {
-                    Ranging_debugAssert(0);
-                    break;
-                }
-                case RL_RF_AE_INITCALIBSTATUS_SB:
-                {
-                    rlRfInitComplete_t*  ptrRFInitCompleteMessage;
-                    uint32_t            calibrationStatus;
-
-                    // Get the RF-Init completion message: //
-                    ptrRFInitCompleteMessage = (rlRfInitComplete_t*)payload;
-                    calibrationStatus = ptrRFInitCompleteMessage->calibStatus & 0x1FFFU;
-
-                    // Display the calibration status: //
-                    CLI_write ("Debug: Init Calibration Status = 0x%x\n", calibrationStatus);
-                    break;
-                }
-
-                case RL_RF_AE_FRAME_TRIGGER_RDY_SB:
-                {
-                    gMmwMssMCB.stats.frameTriggerReady++;
-                    break;
-                }
-                case RL_RF_AE_MON_TIMING_FAIL_REPORT_SB:
-                {
-                    System_printf("Debug: Monitoring FAIL Report received \n");
-                    gMmwMssMCB.stats.failedTimingReports++;
-                    break;
-                }
-                case RL_RF_AE_RUN_TIME_CALIB_REPORT_SB:
-                {
-                    gMmwMssMCB.stats.calibrationReports++;
-                    break;
-                }
-                case RL_RF_AE_FRAME_END_SB:
-                {
-                    gMmwMssMCB.stats.sensorStopped++;
-                    DebugP_log0("App: BSS stop (frame end) received\n");
-
-                    Ranging_dataPathStop();
-                    break;
-                }
-
-                default:
-                {
-                    System_printf ("Error: Asynchronous Event SB Id %d not handled\n", asyncSB);
-                    break;
-                }
-            }
-            break;
-        }
-        // Async Event from MMWL //
-        case RL_MMWL_ASYNC_EVENT_MSG:
-        {
-            switch (asyncSB)
-            {
-                case RL_MMWL_AE_MISMATCH_REPORT:
-                {
-                    // link reports protocol error in the async report from BSS //
-                    Ranging_debugAssert(0);
-                    break;
-                }
-                case RL_MMWL_AE_INTERNALERR_REPORT:
-                {
-                    // link reports internal error during BSS communication //
-                    Ranging_debugAssert(0);
-                    break;
-                }
-            }
-            break;
-        }
-        default:
-        {
-            System_printf ("Error: Asynchronous message %d is NOT handled\n", msgId);
-            break;
-        }
-    }
-    */
-    return 0;
-}
-
-
-/**
- *  @b Description
- *  @n
- *      Registered open callback function which is invoked when the mmWave module
- *      has been opened on the MSS
- *
- *  @param[in]  ptrOpenCfg
- *      Pointer to the open configuration
- *
- *  @retval
- *      Not applicable
- */
-static void Ranging_dssMmwaveOpenCallbackFxn(MMWave_OpenCfg *ptrOpenCfg)
-{
-    // Save the configuration
-    memcpy((void *)(&gMmwDssMCB.openCfg), (void *)ptrOpenCfg, sizeof(MMWave_OpenCfg));
-    //gMmwDssMCB.stats.openEvt++;
-    return;
-}
-/**
- *  @b Description
- *  @n
- *      Registered close callback function which is invoked when the mmWave module
- *      has been close on the MSS
- *
- *  @retval
- *      Not applicable
- */
-static void Ranging_dssMmwaveCloseCallbackFxn(void)
-{
-    //gMmwDssMCB.stats.closeEvt++;
-    return;
-}
-
-/**
- *  @b Description
- *  @n
- *      Registered config callback function on DSS which is invoked by MMWAVE library when the remote side
- *  has finished configure mmWaveLink and BSS. The configuration need to be saved on DSS and used for DataPath.
- *
- *  @param[in]  ptrCtrlCfg
- *      Pointer to the control configuration
- *
- *  @retval
- *      Not applicable
- */
-static void Ranging_dssMmwaveConfigCallbackFxn(MMWave_CtrlCfg *ptrCtrlCfg)
-{
-    // Save the configuration
-    memcpy((void *)(&gMmwDssMCB.ctrlCfg), (void *)ptrCtrlCfg, sizeof(MMWave_CtrlCfg));
-
-    //gMmwDssMCB.stats.configEvt++;
-
-    /* Post event to notify configuration is done */
-    //Event_post(gMmwDssMCB.eventHandle, MMWDEMO_CONFIG_EVT);
-
-    return;
-}
-
-/**
- *  @b Description
- *  @n
- *      Registered Start callback function on DSS which is invoked by MMWAVE library
- *    when the remote side has started mmWaveLink and BSS. This Callback function passes
- *    the event to DataPath task.
- *
- *  @retval
- *      Not applicable
- */
-static void Ranging_dssMmwaveStartCallbackFxn(MMWave_CalibrationCfg *ptrCalibrationCfg)
-{
-    //gMmwDssMCB.stats.startEvt++;
-
-    /* Post event to start is done */
-    //Event_post(gMmwDssMCB.eventHandle, MMWDEMO_START_EVT);
-}
-
-/**
- *  @b Description
- *  @n
- *      Registered Start callback function on DSS which is invoked by MMWAVE library
- *    when the remote side has stop mmWaveLink and BSS. This Callback function passes
- *    the event to DataPath task.
- *
- *  @retval
- *      Not applicable
- */
-static void Ranging_dssMmwaveStopCallbackFxn(void)
-{
-    //gMmwDssMCB.stats.stopEvt++;
-
-    /* Post event to stop is done */
-    //Event_post(gMmwDssMCB.eventHandle, MMWDEMO_STOP_EVT);
 }
 
 /**
@@ -859,27 +625,6 @@ static int32_t Ranging_copyResultToHSRAM
 /**
  *  @b Description
  *  @n
- *      The task is used to provide an execution context for the mmWave
- *      control task
- *
- *  @retval
- *      Not Applicable.
- */
-static void Ranging_dssMMWaveCtrlTask(UArg arg0, UArg arg1)
-{
-    int32_t errCode;
-
-    while (1)
-    {
-        /* Execute the mmWave control module: */
-        if (MMWave_execute(gMmwDssMCB.ctrlHandle, &errCode) < 0)
-            System_printf("Error: MMWDemoDSS mmWave control execution failed [Error code %d]\n", errCode);
-    }
-}
-
-/**
- *  @b Description
- *  @n
  *      DPM Execution Task. DPM execute results are processed here:
  *      a) Update states based on timestamp from DPC.
  *      b) Copy results to shared memory to be shared with MSS.
@@ -918,7 +663,8 @@ static void Ranging_DPC_Ranging_dpmTask(UArg arg0, UArg arg1)
                 Ranging_updateObjectDetStats(result->stats,
                                                 &gMmwDssMCB.dataPathObj.subFrameStats[result->subFrameIdx]);
 
-                /* Copy result data to HSRAM */
+                // Send results to MSS
+                // Copy result data to HSRAM
                 if ((retVal = Ranging_copyResultToHSRAM(&gHSRAM, result, &gMmwDssMCB.dataPathObj.subFrameStats[result->subFrameIdx])) >= 0)
                 {
                     /* Update interframe margin with HSRAM copy time */
@@ -929,7 +675,6 @@ static void Ranging_DPC_Ranging_dpmTask(UArg arg0, UArg arg1)
                     resultBuffer.ptrBuffer[1] = (uint8_t *)&gHSRAM.outStats;
                     resultBuffer.size[1] = sizeof(Ranging_output_message_stats);
 
-                    /* YES: Results are available send them. */
                     retVal = DPM_sendResult (gMmwDssMCB.dataPathObj.objDetDpmHandle, true, &resultBuffer);
                     if (retVal < 0)
                     {
@@ -962,31 +707,15 @@ static void Ranging_dssInitTask(UArg arg0, UArg arg1)
     int32_t             errCode;
     Task_Params         taskParams;
     DPM_InitCfg         dpmInitCfg;
-    MMWave_InitCfg      initCfg;
     DPC_Ranging_InitParams      objDetInitParams;
-    Mbox_Handle         mbxHandle;
-    Mailbox_Config      mbxCfg;
+
+    // Default values
+    gMmwDssMCB.currentTimeslot.slotType = SLOT_TYPE_NO_OP;
+    gMmwDssMCB.nextTimeslot.slotType    = SLOT_TYPE_NO_OP;
 
     /*****************************************************************************
      * Driver Init:
      *****************************************************************************/
-
-    // Initialize the Mailbox
-//    Mailbox_init(MAILBOX_TYPE_DSS);
-//
-//    if(Mailbox_Config_init(&mbxCfg) < 0)
-//    {
-//        System_printf ("Error: DSS mbox config failed\n",errCode);
-//        return;
-//    }
-//    mbxCfg.writeMode    = MAILBOX_MODE_POLLING;
-//    mbxCfg.readMode     = MAILBOX_MODE_CALLBACK;
-//    mbxCfg.readCallback = mssMbxCallback;
-//    mbxCfg.chType       = MAILBOX_CHTYPE_MULTI;
-//    mbxCfg.chId         = MAILBOX_CH_ID_0;
-//    mbxHandle           = Mailbox_open(MAILBOX_TYPE_MSS, &cfg, &errCode);
-
-
 
     initializeMailboxWithRemote(IPC_MAILBOX_TASK_PRIORITY,
                                 MAILBOX_TYPE_DSS,
@@ -1007,55 +736,8 @@ static void Ranging_dssInitTask(UArg arg0, UArg arg1)
     // mmWave: Initialization of the high level module
     ////////////////////////////////////////////////////////////////////////////////
 
-    /* Populate the init configuration for mmwave library: */
-    initCfg.domain                      = MMWave_Domain_DSS;
-    initCfg.socHandle                   = gMmwDssMCB.socHandle;
-    initCfg.eventFxn                    = Ranging_eventCallbackFxn;
-    initCfg.linkCRCCfg.useCRCDriver     = 1U;
-    initCfg.linkCRCCfg.crcChannel       = CRC_Channel_CH1;
-    initCfg.cfgMode                     = MMWave_ConfigurationMode_FULL;
-    initCfg.executionMode               = MMWave_ExecutionMode_COOPERATIVE;
-    initCfg.cooperativeModeCfg.cfgFxn   = Ranging_dssMmwaveConfigCallbackFxn;
-    initCfg.cooperativeModeCfg.startFxn = Ranging_dssMmwaveStartCallbackFxn;
-    initCfg.cooperativeModeCfg.stopFxn  = Ranging_dssMmwaveStopCallbackFxn;
-    initCfg.cooperativeModeCfg.openFxn  = Ranging_dssMmwaveOpenCallbackFxn;
-    initCfg.cooperativeModeCfg.closeFxn = Ranging_dssMmwaveCloseCallbackFxn;
-
-    /* Initialize and setup the mmWave Control module */
-    gMmwDssMCB.ctrlHandle = MMWave_init(&initCfg, &errCode);
-    if (gMmwDssMCB.ctrlHandle == NULL)
-    {
-        /* Error: Unable to initialize the mmWave control module */
-        System_printf("Error: Ranging DSS mmWave Control Initialization failed [Error code %d]\n", errCode);
-        return;
-    }
-    System_printf("Debug: Ranging DSS mmWave Control Initialization succeeded\n");
-
-    /******************************************************************************
-     * TEST: Synchronization
-     * - The synchronization API always needs to be invoked.
-     ******************************************************************************/
-    while (1)
-    {
-        int32_t syncStatus;
-
-        /* Get the synchronization status: */
-        syncStatus = MMWave_sync(gMmwDssMCB.ctrlHandle, &errCode);
-        if (syncStatus < 0)
-        {
-            /* Error: Unable to synchronize the mmWave control module */
-            System_printf("Error: MMWDemoDSS mmWave Control Synchronization failed [Error code %d]\n", errCode);
-            return;
-        }
-        if (syncStatus == 1)
-        {
-            /* Synchronization acheived: */
-            break;
-        }
-        /* Sleep and poll again: */
-        Task_sleep(1);
-    }
-    System_printf("Debug: Ranging DSS MMWave_sync succeeded\n");
+    // Perform MMWave_init and MMWave_sync
+    initializeMMWaveSystem();
 
     /*****************************************************************************
      * Initialization of the DPM Module:

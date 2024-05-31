@@ -23,9 +23,7 @@ void getTargetTime(uint32_t *outTargetL, uint32_t *outTargetH);
 void getExecutionTime(uint32_t *outExecutionL, uint32_t *outExecutionH);
 void getTimerIsrTime(uint32_t *outTimerIsrL, uint32_t *outTimerIsrH);
 void setTargetTime(uint32_t tscl, uint32_t tsch);
-void launchTimerForTargetTime(uint32_t targetTSCL, uint32_t targetTSCH);
+void launchSensorAtTargetTime(uint32_t targetTSCL, uint32_t targetTSCH);
 void computeTargetTime(uint32_t startTSCL, uint32_t startTSCH, float deltaTimeSec, uint32_t *endTSCL, uint32_t *endTSCH);
-
-
 
 #endif /* INC_COUNTDOWN_TIMER_H_ */

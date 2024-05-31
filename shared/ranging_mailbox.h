@@ -8,6 +8,7 @@
 #ifndef INC_RANGING_MAILBOX_H_
 #define INC_RANGING_MAILBOX_H_
 
+#include <shared/ranging_timeslot.h>
 #include <stdint.h>
 #include <ti/drivers/mailbox/mailbox.h>
 #include <ti/sysbios/knl/Task.h>
@@ -27,7 +28,12 @@ extern Mbox_Handle      g_mboxHandle;
 // Enum for message IDs
 typedef enum ipcMessageId
 {
-    CMD_DSS_TO_START_SENSOR = 0,
+    CMD_DSS_TO_START_SENSOR_NOW = 0,
+    CMD_DSS_TO_START_SENSOR_AT_NEXT_TIMESLOT,
+    CMD_DSS_TO_MSG_MSS_AT_NEXT_TIMESLOT,
+    SET_CURRENT_TIMESLOT,
+    SET_NEXT_TIMESLOT,
+    DSS_REPORTS_NEXT_TIMESLOT_STARTED,
     DSS_REPORTS_SUCCESS,
     DSS_REPORTS_FAILURE
     // Add other message IDs here
@@ -40,7 +46,8 @@ typedef enum ipcMessageId
 typedef struct Ranging_MSS_DSS_Message_t
 {
     /*! @brief Message ID */
-    ipcMessageId_t    messageId;
+    ipcMessageId_t      messageId;
+    rangingTimeSlot_t   timeSlot;
 }Ranging_MSS_DSS_Message;
 
 ////////////////////////////////////////////////////
@@ -56,6 +63,8 @@ void initializeMailboxWithRemote(uint8_t taskPriority,
 void dssReportsSuccess();
 void dssReportsFailure();
 void ranging_mssMboxReadTask(UArg arg0, UArg arg1);
-void cmdDssToStartSensor();
+void cmdDssToStartSensorNow();
+void cmdDssToStartSensorAtNextTimeslot();
+void cmdDssToMsgMssAtNextTimeslot();
 
 #endif /* INC_RANGING_MAILBOX_H_ */

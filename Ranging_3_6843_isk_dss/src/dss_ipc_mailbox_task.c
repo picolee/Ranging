@@ -13,6 +13,8 @@
 #include <xdc/runtime/System.h>
 #include <shared/ranging_mailbox.h>
 #include <inc/ranging_dss.h>
+#include <inc/countdown_timer.h>
+#include <inc/dss_mmwave_sensor_interface.h>
 
 
 #ifdef SUBSYS_DSS
@@ -40,9 +42,12 @@ extern Ranging_DSS_MCB    gMmwDssMCB;
 void ranging_dssMboxReadTask(UArg arg0, UArg arg1)
 {
     int32_t retVal;
-    int32_t errCode;
     Ranging_MSS_DSS_Message message;
-    MMWave_CalibrationCfg calibrationCfg;
+    uint8_t processNextTimeSlot = 0;
+
+    // Initialize the precision timer
+    // It will be used to trigger the beginning of the next time slot at precise times
+    timerInitialization();
 
     /* wait for new message and process all the messages received from the peer */
     while(1)
@@ -65,33 +70,38 @@ void ranging_dssMboxReadTask(UArg arg0, UArg arg1)
         }
         else
         {
-            /* Flush out the contents of the mailbox to indicate that we are done with the message. This will
-            * allow us to receive another message in the mailbox while we process the received message. */
+            // Flush out the contents of the mailbox to indicate that we are done with the message. This will
+            // allow us to receive another message in the mailbox while we process the received message.
             Mailbox_readFlush (g_mboxHandle);
 
-            /* Process the received message: */
+            // Process the received message:
             switch (message.messageId)
             {
-                case CMD_DSS_TO_START_SENSOR:
+                case CMD_DSS_TO_START_SENSOR_NOW:
                 {
-                    /* Initialize the calibration configuration: */
-                    memset((void *)&calibrationCfg, 0, sizeof(MMWave_CalibrationCfg));
-
-                    /* Populate the calibration configuration: */
-                    // calibrationCfg.dfeDataOutputMode                          = MMWave_DFEDataOutputMode_FRAME;
-                    calibrationCfg.dfeDataOutputMode =
-                        gMmwDssMCB.ctrlCfg.dfeDataOutputMode;
-                    calibrationCfg.u.chirpCalibrationCfg.enableCalibration    = true;
-                    calibrationCfg.u.chirpCalibrationCfg.enablePeriodicity    = true;
-                    calibrationCfg.u.chirpCalibrationCfg.periodicTimeInFrames = 10U;
-
-                    /* Start the mmWave module: The configuration has been applied successfully. */
-                    if (MMWave_start(gMmwDssMCB.ctrlHandle, &calibrationCfg, &errCode) < 0)
+                    if(startSensor())
                     {
-                        /* Error: Unable to start the mmWave control */
-                        System_printf("Error: MMWDemoDSS mmWave Start failed [Error code %d]\n", errCode);
                         dssReportsFailure();
                     }
+                    break;
+                }
+
+                case CMD_DSS_TO_START_SENSOR_AT_NEXT_TIMESLOT:
+                {
+                    processNextTimeSlot = 1;
+                    memcpy(&gMmwDssMCB.nextTimeslot, &message.timeSlot, sizeof(rangingTimeSlot_t));
+                    break;
+                }
+
+                case SET_CURRENT_TIMESLOT:
+                {
+                    memcpy(&gMmwDssMCB.currentTimeslot, &message.timeSlot, sizeof(rangingTimeSlot_t));
+                    break;
+                }
+
+                case SET_NEXT_TIMESLOT:
+                {
+                    memcpy(&gMmwDssMCB.nextTimeslot, &message.timeSlot, sizeof(rangingTimeSlot_t));
                     break;
                 }
 
@@ -99,10 +109,25 @@ void ranging_dssMboxReadTask(UArg arg0, UArg arg1)
                 {
                     /* Message not support */
                     System_printf ("Error: unsupported Mailbox message id=%d\n", message.messageId);
+                    dssReportsFailure();
                     break;
                 }
             }
         }
+
+        // Did we receive an update to the next time slot?
+        if(processNextTimeSlot)
+        {
+            if(gMmwDssMCB.nextTimeslot.slotType != SLOT_TYPE_NO_OP)
+            {
+                // Launch the timer to execute at the next time slot's beginning
+                launchSensorAtTargetTime(gMmwDssMCB.nextTimeslot.slotStartTSCL, gMmwDssMCB.nextTimeslot.slotStartTSCH);
+            }
+
+            //
+            processNextTimeSlot = 0;
+        }
+
     }
 }
 

@@ -13,11 +13,6 @@
 #ifndef STATE_MACHINE_DEFINITIONS_H_
 #define STATE_MACHINE_DEFINITIONS_H_
 
-#define  RX_FREQUENCY_GHZ   63.95
-#define  TX_FREQUENCY_GHZ   63.9494
-#define  DEFAULT_PRN        3
-#define  GOLD_CODE_NUM_BITS 6
-
 /* ----------------------------------------------------------------------------------------------------------------- *
  *                                                     Includes
  * ----------------------------------------------------------------------------------------------------------------- */
@@ -34,6 +29,9 @@
 #include <ti/sysbios/knl/Task.h>
 #include <ti/sysbios/knl/Mailbox.h>
 #include <ti/drivers/uart/UART.h>
+
+#include <inc/ranging_common.h>
+#include <shared/ranging_timeslot.h>
 
 #define NUMMSGS 10
 
@@ -92,15 +90,13 @@ typedef enum
 {
     STATE_INIT              = 0U,
     STATE_STANDBY,
-    STATE_CFG_RX,
-    STATE_CFG_TX,
-    STATE_ACTIVATE_RX_CFG,
-    STATE_ACTIVATE_TX_CFG,
-    STATE_TX_START_CODE,
-    STATE_RX_START_CODE,
-    STATE_TX_RESPONSE_CODE,
-    STATE_RX_RESPONSE_CODE,
-    STATE_RX_CONTINUE,
+    STATE_UPDATE_TIMESLOTS,
+    STATE_CFG,
+    STATE_ACTIVATE_CFG,
+    STATE_EXECUTE_CFG,
+    STATE_EXECUTING,
+    STATE_STOP_EXECUTION,
+    STATE_PROCESS_RESULT,
     STATE_COMPLETED,
     STATE_FAILED,
     STATE_CANCELLED,
@@ -111,25 +107,18 @@ typedef enum
 {
     SM_MSG_INIT       = 0U,
     SM_MSG_STANDBY,
-    SM_MSG_CFG_RX,
-    SM_MSG_CFG_TX,
-    SM_MSG_ACTIVATE_RX_CFG,
-    SM_MSG_ACTIVATE_TX_CFG,
-    SM_MSG_RX_START_CODE,
-    SM_MSG_RX_RESPONSE_CODE,
-    SM_MSG_TX_START_CODE,
-    SM_MSG_TX_RESPONSE_CODE,
-    SM_MSG_CODE_DETECT,
-    SM_MSG_NO_CODE_DETECT,
-    SM_MSG_DSS_REPORTS_SUCCESS,
-    SM_MSG_DSS_REPORTS_FAILURE,
+    SM_MSG_BEGIN_RANGING,
     SM_MSG_SENSOR_STARTED,
-    SM_MSG_TX_COMPLETE,
+    SM_MSG_TIMESLOT_STARTED,
+    SM_MSG_RESULTS_AVAIL,
+    SM_MSG_CFG_NEXT_TIMESLOT,
+    SM_MSG_DSS_REPORTS_FAILURE,
+    SM_MSG_UPDATE_TIMESLOT_LIST,
     SM_MSG_CANCELLED,
     SM_MSG_FAILED,
     SM_MSG_COMPLETED,
     SM_MSG_TOTAL_COUNT
-}StateMachineMessages_t;
+} StateMachineMessages_t;
 
 // Each State is represented by a State_Information_t struct.
 // It contains:
@@ -138,16 +127,14 @@ typedef enum
 struct State_Information_t
 {
     State_Information_Ptr_t         stateTransitionTable[SM_MSG_TOTAL_COUNT]; // Mapping between flags received and the new state to transition to
-    StateExecutionFunction_t        stateExecutionFunction;     // pointer to the function that executes this state
-    State_Information_Ptr_t         previousStateInfo_ptr;      // prior state information struct
+    StateExecutionFunction_t        stateExecutionFunction;     // Pointer to the function that executes this state
+    State_Information_Ptr_t         previousStateInfo_ptr;      // Pointer to the prior state information struct
     uint16_t                        stateNumber;                // State_Enum_t that corresponds to the state information struct
-    uint16_t                        rxPrn;                      // Gold Code PRN
-    uint16_t                        txPrn;                      // Gold Code PRN
-    uint8_t                         goldCodeNumBits;            // 2^N + 1 possible PRNs, each of length 2^N-1
-    float                           txFrequencyInGhz;           // Transmits the gold code at this frequency
-    float                           rxFrequencyInGhz;           // LO mixes down to IF at this frequency
-    uint32_t                        timesEntered;               // tracks the total number of times this state was entered
+    uint32_t                        timesEntered;               // Tracks the total number of times this state was entered
     StateMachine_Ptr_t              stateMachine;               // Pointer to the owning state machine
+    rangingTimeSlot_Ptr_t           previousTimeSlot_ptr;       // Pointer to the previous time slot
+    rangingTimeSlot_Ptr_t           currentTimeSlot_ptr;        // Pointer to the current time slot
+    rangingTimeSlot_Ptr_t           nextTimeSlot_ptr;           // Pointer to the next time slot
 };
 
 struct StateMachine_t

@@ -55,6 +55,9 @@
 /*                                                                         */
 /* ======================================================================= */
 
+
+#pragma SET_CODE_SECTION(".l1pcode")
+
 #include <math.h>
 #include "inc/gen_twiddle_fft16x32.h"
 

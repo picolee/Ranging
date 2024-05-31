@@ -52,6 +52,7 @@
 #include <inc/ranging_adcconfig.h>
 #include <inc/ranging_monitor.h>
 #include <inc/ranging_output.h>
+#include <inc/timeslot_list.h>
 //#include <ti/datapath/dpc/objectdetection/objdetrangehwa/objdetrangehwa.h>
 
 #include <inc/ranging_config.h>
@@ -387,6 +388,27 @@ typedef struct Ranging_calibData_t
         Ranging_calibData is not multiple of 8 bytes. */
 } Ranging_calibData;
 
+typedef enum rangingResultType
+{
+    DSS_RESULTS = 0,
+    NEXT_TIMESLOT_STARTED
+} rangingResultType_t;
+
+/*!
+ * @brief
+ * Structure holds results from the DSS
+ *
+ * @details
+ *  The structure holds calibration restore configuration.
+ */
+typedef struct rangingResult
+{
+    rangingResultType_t type;
+
+    /*! @brief      Holds data from the DSS */
+    Ranging_PRN_Detection_Stats detectionStats;
+} rangingResult_t;
+
 /**
  * @brief
  *  Millimeter Wave Demo MCB
@@ -451,6 +473,18 @@ typedef struct Ranging_MSS_MCB_t
 
     /*! @brief      Demo Stats */
     Ranging_MSS_Stats           stats;
+
+    /*! @brief      Results from the DSS */
+    rangingResult_t             rangingResult;
+
+    /*! @brief      Schedule for the radio */
+    circularLinkedTimeSlotList_t    timeSlotList;
+
+    /*! @brief      Index in the timeSlotList of the current time slot */
+    uint16_t                    currentTimeslotIndex;
+
+    /*! @brief   True if we have synchronized at least once (or if we are designated as the time master) */
+    bool                        synchronized;
 
     /*! @brief      Task handle storage */
     Ranging_taskHandles         taskHandles;

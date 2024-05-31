@@ -66,6 +66,8 @@
 #include <inc/ranging_rfparser.h>
 #include <inc/gold_code.h>
 #include <inc/state_machine.h>
+#include <shared/ranging_rfConfig.h>
+#include <shared/ranging_timeslot.h>
 
 #ifdef SYS_COMMON_XWR68XX_LOW_POWER_MODE_EN
 /* Low Power Library Functions*/
@@ -386,15 +388,15 @@ int32_t Ranging_CreateReceiveConfiguration(float frequencyInGhz)
     profileCfg.startFreqConst        = (uint32_t) (frequencyInGhz * (1U << 26) / gMmwMssMCB.rfFreqScaleFactor);
 
     /* Translate below times from us to [1 LSB = 10 ns] units of mmwavelink format */
-    profileCfg.idleTimeConst         = (uint32_t)((float)3 * 1000 / 10);    // 3 us idle time
-    profileCfg.adcStartTimeConst     = (uint32_t)((float)5 * 1000 / 10);    // 5 us ADC wait time
-    profileCfg.rampEndTime           = (uint32_t)((float)1280 * 1000 / 10); // 1280 us ramp time
+    profileCfg.idleTimeConst         = (uint32_t)((float)RX_IDLE_TIME_US * 1000 / 10);      // 3 us idle time
+    profileCfg.adcStartTimeConst     = (uint32_t)((float)RX_ADC_START_TIME_US * 1000 / 10); // 5 us ADC wait time
+    profileCfg.rampEndTime           = (uint32_t)((float)RX_RAMP_DURATION_US * 1000 / 10);  // 1280 us ramp time
     profileCfg.txOutPowerBackoffCode = 0;                                   // 0 dB Tx decrease
     profileCfg.txPhaseShifter        = 0;                                   // no phase shift
     profileCfg.freqSlopeConst        = 0;                                   // No slope
     profileCfg.txStartTime           = (int32_t)((float)0 * 1000 / 10);     // 10's of ns
-    profileCfg.numAdcSamples         = 4096;                                // 1024 us @ 4 MSPS
-    profileCfg.digOutSampleRate      = 4000;                                // KSPS
+    profileCfg.numAdcSamples         = RX_NUM_SAMPLES;                      // 1024 us @ 4 MSPS
+    profileCfg.digOutSampleRate      = RX_SAMPLE_RATE_KSPS;                 // KSPS
     profileCfg.hpfCornerFreq1        = 0;                                   // 175 kHz - hpfCornerFreq1
     profileCfg.hpfCornerFreq2        = 0;                                   // 350 kHz - hpfCornerFreq2
     profileCfg.rxGain                = 158;                                 // 36 dB Rx Gain
@@ -479,7 +481,7 @@ int32_t Ranging_ActivateReceiveConfiguration()
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpEndIdx        = 0;          // chirpEndIdx
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numLoops           = 1;          // numLoops
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numFrames          = 0;          // numFrames
-    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.framePeriodicity   = (uint32_t)((float)10 * 1000000 / 5);  // framePeriodicity
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.framePeriodicity   = (uint32_t)((float)FRAME_PERIOD_MS * 1000000 / 5);  // framePeriodicity
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.triggerSelect      = 1;                                    // triggerSelect
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.frameTriggerDelay  = (uint32_t)((float)0 * 1000000 / 5);   // frameTriggerDelay
 
@@ -533,15 +535,15 @@ int32_t Ranging_CreateTransmitConfiguration(float frequencyInGhz, uint8_t numGol
     profileCfg.startFreqConst        = (uint32_t) (frequencyInGhz * (1U << 26) / gMmwMssMCB.rfFreqScaleFactor);
 
     /* Translate below times from us to [1 LSB = 10 ns] units of mmwavelink format */
-    profileCfg.idleTimeConst         = (uint32_t)((float)3 * 1000 / 10);    // 3 us idle time
-    profileCfg.adcStartTimeConst     = (uint32_t)((float)0 * 1000 / 10);    // 0 us ADC wait time
-    profileCfg.rampEndTime           = (uint32_t)((float)6 * 1000 / 10);    // 6 us ramp time
+    profileCfg.idleTimeConst         = (uint32_t)((float)TX_IDLE_TIME_US * 1000 / 10);      // 3 us idle time
+    profileCfg.adcStartTimeConst     = (uint32_t)((float)TX_ADC_START_TIME_US * 1000 / 10); // 0 us ADC wait time
+    profileCfg.rampEndTime           = (uint32_t)((float)TX_RAMP_DURATION_US * 1000 / 10);  // 6 us ramp time
     profileCfg.txOutPowerBackoffCode = 0;                                   // 0 dB Tx decrease
     profileCfg.txPhaseShifter        = 0;                                   // no phase shift
     profileCfg.freqSlopeConst        = 0;                                   // No slope
     profileCfg.txStartTime           = (int32_t)((float)0 * 1000 / 10);     // 10's of ns
-    profileCfg.numAdcSamples         = 64;                                  // 5.12 us @ 12.5 MSPS
-    profileCfg.digOutSampleRate      = 12500;                               // KSPS
+    profileCfg.numAdcSamples         = TX_NUM_SAMPLES;                      // 64 samples -> 5.12 us @ 12.5 MSPS
+    profileCfg.digOutSampleRate      = TX_SAMPLE_RATE_KSPS;                 // KSPS
     profileCfg.hpfCornerFreq1        = 0;                                   // 175 kHz - hpfCornerFreq1
     profileCfg.hpfCornerFreq2        = 0;                                   // 350 kHz - hpfCornerFreq2
     profileCfg.rxGain                = 158;                                 // 36 dB Rx Gain
@@ -622,7 +624,7 @@ int32_t Ranging_CreateTransmitConfiguration(float frequencyInGhz, uint8_t numGol
     return 0;
 }
 
-int32_t Ranging_ActivateTransmitConfiguration(float frequencyInGhz)
+int32_t Ranging_ActivateTransmitConfiguration()
 {
 
     /////////////////////////////////////////////////////////////////////////////////////////
@@ -643,7 +645,7 @@ int32_t Ranging_ActivateTransmitConfiguration(float frequencyInGhz)
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpEndIdx        = 64;         // chirpEndIdx
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numLoops           = 1;          // numLoops
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numFrames          = 0;          // numFrames
-    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.framePeriodicity   = (uint32_t)((float)10 * 1000000 / 5);  // framePeriodicity
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.framePeriodicity   = (uint32_t)((float)FRAME_PERIOD_MS * 1000000 / 5);  // framePeriodicity
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.triggerSelect      = 1;                                    // triggerSelect
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.frameTriggerDelay  = (uint32_t)((float)0 * 1000000 / 5);   // frameTriggerDelay
 
@@ -699,31 +701,77 @@ static int32_t Ranging_CLISensorStandby (int32_t argc, char* argv[])
 
 
 
-static int32_t Ranging_CLISensorReceive (int32_t argc, char* argv[])
+static int32_t Ranging_CLISensorRun (int32_t argc, char* argv[])
 {
-    float frequencyInGhz;
-    uint16_t prn;
-
-    if(argc != 3)
+    if (gMmwMssMCB.sensorState == Ranging_SensorState_STARTED)
     {
-        frequencyInGhz  = 63.95;
-        prn             = (int8_t) (3);
+        CLI_write ("Ignored: Sensor is already started\n");
+        return 0;
+    }
+
+    // Configure the sensor, configure the data path, and then start the sensor
+    Begin_Ranging();
+    return 0;
+}
+
+static int32_t Ranging_CLIAddTimeslot (int32_t argc, char* argv[])
+{
+    rangingTimeSlot_t slot;
+
+    if (gMmwMssMCB.sensorState == Ranging_SensorState_STARTED)
+    {
+        CLI_write ("Ignored: Sensor is already started\n");
+        return 0;
+    }
+
+    if(argc < 5)
+    {
+        slot.slotType = SLOT_TYPE_NO_OP;
+        slot.frequencyInGHz     = 0;
+        slot.prn                = 0;
     }
     else
     {
-        /* Populate configuration: */
-        frequencyInGhz  = atof (argv[1]);
-        prn             = (int8_t) atoi (argv[2]);
+        slot.slotType           = (rangingTimeSlotType_t) atoi (argv[1]);
+        slot.frequencyInGHz     = (float) atof (argv[2]);
+        slot.prn                = (uint16_t) atoi (argv[3]);
+        slot.goldCodeNumBits    = (uint8_t) atoi (argv[4]);
     }
 
-    // Set up the profile and chirps
-    Configure_State_Machine_Receive( frequencyInGhz, prn );
+    if(slot.slotType < NUMBER_OF_SLOT_TYPES)
+    {
+        // Add the time slot
+        initializeDefaultTimeSlot(&slot, slot.slotType, slot.frequencyInGHz, slot.prn, slot.goldCodeNumBits);
+        addTimeSlotToEnd(&gMmwMssMCB.timeSlotList, slot);
 
-    // Set the active frame to include the correct profile and chirps
-    Activate_State_Machine_Receive_Cfg();
+        // Update the state machine
+        Send_Update_Timeslots_Message( );
 
-    // Configure the sensor, configure the data path, and then start the sensor
-    Begin_State_Machine_Receive_Start_Code();
+        return 0;
+    }
+    CLI_write ("Invalid slot type.\n");
+    return -1;
+}
+
+static int32_t Ranging_CLIPrintTimeSlots (int32_t argc, char* argv[])
+{
+    uint16_t index;
+    rangingTimeSlot_Ptr_t slot;
+    for (index = 0; index < gMmwMssMCB.timeSlotList.size; index++)
+    {
+        slot = getTimeSlotAtIndex(&gMmwMssMCB.timeSlotList, index);
+        printf("Slot %u: %s\tfreq (GHz): %f\tprn: %u\n", index, slotTypeNames[slot->slotType], slot->frequencyInGHz, slot->prn);
+    }
+    return 0;
+}
+
+static int32_t Ranging_CLIPrintSlotTypes (int32_t argc, char* argv[])
+{
+    uint16_t index;
+    for (index = 0; index < NUMBER_OF_SLOT_TYPES; index++)
+    {
+        printf("Slot type %u: %s\n", index, slotTypeNames[index]);
+    }
     return 0;
 }
 
@@ -1380,7 +1428,7 @@ void Ranging_CLIInit (uint8_t taskPriority)
     cnt++;
 
     cliCfg.tableEntry[cnt].cmd            = "calibData";
-    cliCfg.tableEntry[cnt].helpString    = "<save enable> <restore enable> <Flash offset>";
+    cliCfg.tableEntry[cnt].helpString     = "<save enable> <restore enable> <Flash offset>";
     cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLICalibDataSaveRestore;
     cnt++;
 
@@ -1398,13 +1446,28 @@ void Ranging_CLIInit (uint8_t taskPriority)
 
 
     cliCfg.tableEntry[cnt].cmd            = "standby";
-    cliCfg.tableEntry[cnt].helpString    = "";
+    cliCfg.tableEntry[cnt].helpString     = "no args";
     cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLISensorStandby;
     cnt++;
 
-    cliCfg.tableEntry[cnt].cmd            = "runRx";
-    cliCfg.tableEntry[cnt].helpString    = "<frequemcyInGhz><prn>";
-    cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLISensorReceive;
+    cliCfg.tableEntry[cnt].cmd            = "run";
+    cliCfg.tableEntry[cnt].helpString     = "no args";
+    cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLISensorRun;
+    cnt++;
+
+    cliCfg.tableEntry[cnt].cmd            = "addTimeslot";
+    cliCfg.tableEntry[cnt].helpString     = "<Type><frequencyGHz><prn><goldCodeNumBits>";
+    cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLIAddTimeslot;
+    cnt++;
+
+    cliCfg.tableEntry[cnt].cmd            = "printTimeslots";
+    cliCfg.tableEntry[cnt].helpString     = "No args";
+    cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLIPrintTimeSlots;
+    cnt++;
+
+    cliCfg.tableEntry[cnt].cmd            = "printSlotTypes";
+    cliCfg.tableEntry[cnt].helpString     = "No args";
+    cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLIPrintSlotTypes;
     cnt++;
 
     /* Open the CLI: */

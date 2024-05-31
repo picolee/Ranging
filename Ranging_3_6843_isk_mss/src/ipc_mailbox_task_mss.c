@@ -60,8 +60,12 @@ void ranging_mssMboxReadTask(UArg arg0, UArg arg1)
             {
                 case DSS_REPORTS_SUCCESS:
                 {
-                    // Send the report to the state machine
-                    Send_DSS_Reports_Success_Message();
+                    break;
+                }
+
+                case DSS_REPORTS_NEXT_TIMESLOT_STARTED:
+                {
+                    Send_New_Timeslot_Started_Message();
                     break;
                 }
 

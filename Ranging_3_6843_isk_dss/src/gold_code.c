@@ -12,6 +12,10 @@
 #include <math.h>
 #include "inc/gold_code.h"
 
+#ifdef SUBSYS_DSS
+#pragma SET_CODE_SECTION(".l1pcode")
+#endif
+
 // Defined out to 11 bits - use the first N
 int16_t seed[]    = {0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1};
 

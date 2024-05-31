@@ -739,6 +739,11 @@ static void Ranging_transmitProcessedOutput
         DebugP_assert ((uint32_t) rangingData != SOC_TRANSLATEADDR_INVALID);
 
         detectionStats = &rangingData->detectionStats;
+
+        memcpy(&gMmwMssMCB.rangingResult.detectionStats, &rangingData->detectionStats, sizeof(Ranging_PRN_Detection_Stats));
+
+        // Update the state machine
+        Send_Results_Available_Message();
     }
 
     // Data is arranged as:
@@ -753,10 +758,6 @@ static void Ranging_transmitProcessedOutput
     // ADC Data
     if(detectionStats->wasCodeDetected)
     {
-        // Update the state machine.
-        // It will respond by starting the response cycle if it was waiting for a start code
-        // Or by calculating the range if it initiated ranging
-        Send_Code_Detect_Message();
 
         snprintf(output_data,
                  sizeof(output_data),
@@ -778,8 +779,6 @@ static void Ranging_transmitProcessedOutput
     }
     else
     {
-        Send_No_Code_Detect_Message();
-
         snprintf(output_data,
                  sizeof(output_data),
                  "\r\nCODE: 0\t");

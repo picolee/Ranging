@@ -25,6 +25,12 @@
 #define TIMER_MARGIN 1000
 #define CYCLES_PER_MICROSECOND 600
 
+#ifdef SUBSYS_DSS
+#pragma SET_CODE_SECTION(".l1pcode")
+#endif
+
+typedef void (*clockISRFunc)(UArg arg);
+
 // Variables to hold the target timestamp values
 volatile uint32_t targetTSCL = 0;
 volatile uint32_t targetTSCH = 0;
@@ -48,12 +54,13 @@ static uint32_t calculateDelayCycles(uint32_t currentTSCL, uint32_t currentTSCH,
     return targetCycles > currentCycles ? targetCycles - currentCycles : 0;
 }
 
+
+
 // ISR to handle the timer interrupt
-void clockISR(UArg arg)
+void clockISRSensorStart(UArg arg)
 {
     uint32_t startTSCL, startTSCH;
     uint32_t remainingCycles;
-
 
     ////////////////////////////////////////////////
     // 1. Perform coarse delay
@@ -86,7 +93,7 @@ void clockISR(UArg arg)
     executionTSCH = TSCH;
 
     ////////////////////////////////////////////////
-    // 4. Stop the clock
+    // 4. Stop the timer
     if (precisionTimer != NULL)
     {
         //Clock_stop(precisionClock);
@@ -99,7 +106,7 @@ void clockISR(UArg arg)
 }
 
 // Function to configure and start precisionTimer
-static void configureAndStartTimer()
+static void configureAndStartTimer(clockISRFunc func)
 {
     uint32_t startTSCL, startTSCH;
     uint32_t delayCycles;
@@ -130,7 +137,7 @@ static void configureAndStartTimer()
         params.periodType = Timer_PeriodType_COUNTS;
         params.arg = 0;
 
-        precisionTimer = Timer_create(Timer_ANY, clockISR, &params, &eb);
+        precisionTimer = Timer_create(Timer_ANY, func, &params, &eb);
         Timer_getFreq(precisionTimer, &fqHz);
         timerFreqMHz = fqHz.lo/1000000;
         delayCycles = delayCycles/DSP_CLOCK_MHZ;
@@ -144,6 +151,7 @@ static void configureAndStartTimer()
     }
     else
     {
+        Timer_setFunc(precisionTimer, func, 0);
         delayCycles = delayCycles/DSP_CLOCK_MHZ;
         delayCycles = delayCycles*timerFreqMHz;
         Timer_setPeriod(precisionTimer, delayCycles);
@@ -221,13 +229,13 @@ void computeTargetTime(uint32_t startTSCL, uint32_t startTSCH, float deltaTimeSe
 }
 
 // Function to configure the timer to trigger at a specific TSCL and TSCH
-void launchTimerForTargetTime(uint32_t targetTSCL, uint32_t targetTSCH)
+void launchSensorAtTargetTime(uint32_t targetTSCL, uint32_t targetTSCH)
 {
     // Record the target time into variables that are global for this file
     setTargetTime(targetTSCL, targetTSCH);
 
     // Launch the timer with the calculated delay
-    configureAndStartTimer();
+    configureAndStartTimer(clockISRSensorStart);
 }
 
 // Initialize the semaphore that is used to signal when the timer is completed

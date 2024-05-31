@@ -78,35 +78,9 @@ void State_Machine_Thread_Start(UArg arg0, UArg arg1);
  *                                                   External Functions
  * ----------------------------------------------------------------------------------------------------------------- */
 
-//void State_Machine_Init(uint8_t taskPriority, Task_Handle* stateMachineTask)
-//{
-//
-//    // Create a Mailbox instance */
-//    Mailbox_Params mbxParams;
-//    Mailbox_Params_init(&mbxParams);
-//    mbxParams.buf     = (Ptr)mailboxBuffer;
-//    mbxParams.bufSize = sizeof(mailboxBuffer);
-//    Mailbox_construct(&mbxStruct, sizeof(MsgObj), NUMMSGS, &mbxParams, NULL);
-//    mbxHandle = Mailbox_handle(&mbxStruct);
-//
-//    // Configure state machine and operating system objects
-//    // Completed, Failed, Cancelled
-//    Define_Global_States();
-//
-//    // Main State Machine
-//    Define_State_Machine();
-//
-//    Configure_Initial_State_To_Standby();
-//
-//    // Create thread
-//    Task_Params         taskParams;
-//    Task_Params_init(&taskParams);
-//    taskParams.priority  = taskPriority;
-//    taskParams.stackSize = 4*1024;
-//    *stateMachineTask = Task_create(State_Machine_Thread_Start, &taskParams, NULL);
-//
-//    Send_State_Machine_Init_Message();
-//}
+//----------------------------------------------------------------------------------------------------------------- *
+//                                                   Local Functions
+//----------------------------------------------------------------------------------------------------------------- *
 
 void State_Machine_Init(uint8_t taskPriority, UART_Handle uart)
 {
@@ -187,6 +161,11 @@ void State_Machine_Thread_Start(UArg arg0, UArg arg1)
             break;
         }
 
+        Log_To_Uart(State_Machine.currentState,
+                    "\t\t%s\trx msg\t%s\r\n",
+                    state_to_string_table[State_Machine.currentState->stateNumber],
+                    message_to_string_table[ state_machine_transition_message_id ]);
+
         // Use the event_flag as a key in the state transition table to find the next state
         newStateInformation = sm->currentState->stateTransitionTable[ state_machine_transition_message_id ];
 
@@ -221,51 +200,24 @@ void State_Machine_Thread_Start(UArg arg0, UArg arg1)
     }
 }
 
-void Begin_State_Machine_Receive_Start_Code()
+void Begin_Ranging()
 {
-    Send_State_Machine_Message( SM_MSG_RX_START_CODE );
+    Send_State_Machine_Message( SM_MSG_BEGIN_RANGING );
 }
 
-void Configure_State_Machine_Receive( float frequencyInGhz, uint16_t prn )
+void Send_Results_Available_Message()
 {
-    uint16_t index;
-    for(index = 0; index < STATE_TOTAL_COUNT; index++)
-    {
-        State_Machine_States[index].rxPrn = prn;
-        State_Machine_States[index].rxFrequencyInGhz = frequencyInGhz;
-    }
-    Send_State_Machine_Message( SM_MSG_CFG_RX );
+    Send_State_Machine_Message( SM_MSG_RESULTS_AVAIL );
 }
 
-void Activate_State_Machine_Receive_Cfg( )
+void Send_New_Timeslot_Started_Message()
 {
-    Send_State_Machine_Message( SM_MSG_ACTIVATE_RX_CFG );
+    Send_State_Machine_Message( SM_MSG_TIMESLOT_STARTED );
 }
 
-void Configure_State_Machine_Transmit( float frequencyInGhz, uint16_t prn )
+void Send_Update_Timeslots_Message()
 {
-    uint16_t index;
-    for(index = 0; index < STATE_TOTAL_COUNT; index++)
-    {
-        State_Machine_States[index].txPrn = prn;
-        State_Machine_States[index].txFrequencyInGhz = frequencyInGhz;
-    }
-    Send_State_Machine_Message( SM_MSG_CFG_TX );
-}
-
-void Activate_State_Machine_Transmit_Cfg()
-{
-    Send_State_Machine_Message( SM_MSG_ACTIVATE_TX_CFG );
-}
-
-void Begin_State_Machine_Transmit_Start_Code()
-{
-    Send_State_Machine_Message( SM_MSG_TX_START_CODE );
-}
-
-void Begin_State_Machine_Transmit_Response_Code()
-{
-    Send_State_Machine_Message( SM_MSG_TX_RESPONSE_CODE );
+    Send_State_Machine_Message( SM_MSG_UPDATE_TIMESLOT_LIST );
 }
 
 void Send_State_Machine_Standby_Message( )
@@ -278,29 +230,9 @@ void Send_State_Machine_Init_Message( )
     Send_State_Machine_Message( SM_MSG_INIT );
 }
 
-void Send_Code_Detect_Message( )
-{
-    Send_State_Machine_Message( SM_MSG_CODE_DETECT );
-}
-
-void Send_No_Code_Detect_Message( )
-{
-    Send_State_Machine_Message( SM_MSG_NO_CODE_DETECT );
-}
-
-void Send_Transmit_Complete_Message()
-{
-    Send_State_Machine_Message( SM_MSG_TX_COMPLETE );
-}
-
 void Send_Sensor_Started_Message()
 {
     Send_State_Machine_Message( SM_MSG_SENSOR_STARTED );
-}
-
-void Send_DSS_Reports_Success_Message( )
-{
-    Send_State_Machine_Message( SM_MSG_DSS_REPORTS_SUCCESS );
 }
 
 void Send_DSS_Reports_Failure_Message( )

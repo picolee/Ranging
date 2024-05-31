@@ -635,6 +635,7 @@
 #include <inc/ranging_rfparser.h>
 #include <inc/ranging_adcconfig.h>
 #include <inc/state_machine.h>
+#include <inc/timeslot_list.h>
 #include <inc/ranging_dpc_interface.h>
 #include <shared/ranging_mailbox.h>
 #include <ti/demo/utils/mmwdemo_flash.h>
@@ -1839,6 +1840,13 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
 
     /* Debug Message: */
     System_printf("Debug: Launched the Initialization Task\n");
+
+    ////////////////////////////////////////////////////////////////////////////////
+    // Initialize the time slot schedule
+    ////////////////////////////////////////////////////////////////////////////////
+
+    initTimeSlotList(&gMmwMssMCB.timeSlotList);
+    gMmwMssMCB.currentTimeslotIndex = 0;
 
     /*****************************************************************************
      * Initialize the mmWave SDK components:

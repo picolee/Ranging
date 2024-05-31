@@ -148,13 +148,16 @@ typedef struct rangingDSPObj_t
     /*! @brief      IFFT of FFT(magnitude data)*(Complex Conjugate(FFT(Gold Code)))*/
     cmplx32ImRe_t           *iFftDataL3;
 
-    /*! @brief      Mag( IFFT ( FFT(magnitude data) * ( Complex Conjugate( FFT(Gold Code)))))*/
+    /*! @brief      Mag( IFFT ( FFT(magnitude data) * ( Complex Conjugate( FFT(Gold Code))))) */
     uint32_t                *magIfftDataL3;
 
-    /*! @brief      L3 storage for the complex conjugate of the FFT of the gold code*/
+    /*! @brief      L3 storage for the complex conjugate of the FFT of the gold code */
     cmplx16ImRe_t           *fftGoldCodeL3_16kB;
 
-    /*! @brief      L3 storage for the FFT twiddle factors*/
+    /*! @brief      L3 storage for the IFFT twiddle factors - currently unused */
+    cmplx16ImRe_t           *ifftTwiddle16x16L3_16kB;
+
+    /*! @brief      L3 storage for the FFT twiddle factors - defined in gen_twiddle_fft16x32.h */
     cmplx16ImRe_t           *fftTwiddle16x16L3_16kB;
 
     /*! @brief     Number of samples per chirp */
