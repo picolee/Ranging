@@ -415,26 +415,11 @@ typedef struct DPC_Ranging_StaticCfg_t
     /*! @brief      ADCBuf buffer interface */
     DPIF_ADCBufData  ADCBufData;
 
-    /*! @brief      ADC sample rate */
-    uint32_t    adcSampleRate;
-
     /*! @brief  Rx Antenna order */
     uint8_t     rxAntOrder[SYS_COMMON_NUM_RX_CHANNEL];
 
     /*! @brief  Tx Antenna order */
     uint8_t     txAntOrder[SYS_COMMON_NUM_TX_ANTENNAS];
-
-    /*! @brief  Number of transmit antennas */
-    uint8_t     numTxAntennas;
-
-    /*! @brief  Number of virtual antennas */
-    uint8_t     numVirtualAntennas;
-
-    /*! @brief  Number of virtual azimuth antennas */
-    uint8_t     numVirtualAntAzim;
-
-    /*! @brief  Number of virtual elevation antennas */
-    uint8_t     numVirtualAntElev;
 
     /*! @brief  Number of chirps per frame */
     uint16_t    numChirpsPerFrame;
@@ -580,7 +565,7 @@ typedef struct DPC_Ranging_Stats_t
 /*
  * @brief Stats structure to convey to Application timing and related information.
  */
-typedef struct DPC_Ranging_Data_t
+typedef struct DPC_Ranging_Data
 {
     // Contains early, prompt, late, offsets, PRN, etc
     Ranging_PRN_Detection_Stats detectionStats;
@@ -596,12 +581,6 @@ typedef struct DPC_Ranging_Data_t
 
     /*! @brief  Frame start time from TSCL */
     uint32_t     frameStartTimeLow;
-
-    /*! @brief  Response start time from TSCH */
-    int32_t     responseStartTimeHigh;
-
-    /*! @brief  Chirp start time from TSCL */
-    int32_t     responseStartTimeLow;
 
     /*! @brief  Clock cycles spent finding the gold code peak */
     int32_t     processingTime;
@@ -621,7 +600,7 @@ typedef struct DPC_Ranging_Data_t
     /*! @brief processing time to compute the magnitude of the ifft*/
     uint32_t    magIfftTime;
 
-} DPC_Ranging_Data;
+} DPC_Ranging_Data_t;
 
 /*
  * @brief This is the result structure reported from DPC's registered processing function
@@ -641,7 +620,7 @@ typedef struct DPC_Ranging_ExecuteResult_t
     DPIF_RadarCube      radarCube;
 
     /*! @brief          Pointer to DPC data structure */
-    DPC_Ranging_Data    *rangingData;
+    DPC_Ranging_Data_t  *rangingData;
 
     /*! @brief          Pointer to DPC stats structure */
     DPC_Ranging_Stats   *stats;

@@ -85,24 +85,6 @@ typedef enum rangingRadarCubeLayoutFmt_e
  */
 typedef struct ranging_dpParams_t
 {
-    /*! @brief  Number of transmit antennas */
-    uint8_t     numTxAntennas;
-
-    /*! @brief  Number of receive antennas */
-    uint8_t     numRxAntennas;
-
-    /*! @brief  Number of virtual antennas */
-    uint8_t     numVirtualAntennas;
-
-    /*! @brief  ADCBUF will generate chirp interrupt event every this many chirps */
-    uint8_t     numChirpsPerChirpEvent;
-
-    /*! @brief  ADC sample rate */
-    uint32_t    adcSampleRate;
-
-    /*! @brief  Number of ADC samples */
-    uint16_t    numAdcSamples;
-
     /*! @brief  Number of chirps per frame */
     uint16_t    numChirpsPerFrame;
 

@@ -10,9 +10,11 @@
 #include <ti/sysbios/knl/Task.h>
 #include <ti/sysbios/knl/Semaphore.h>
 #include <ti/control/mmwave/mmwave.h>
+#include <ti/sysbios/knl/Event.h>
 #include <xdc/runtime/System.h>
 #include <shared/ranging_mailbox.h>
 #include <inc/ranging_dss.h>
+#include <inc/ranging_datapath.h>
 #include <inc/countdown_timer.h>
 #include <inc/dss_mmwave_sensor_interface.h>
 
@@ -43,16 +45,24 @@ void ranging_dssMboxReadTask(UArg arg0, UArg arg1)
 {
     int32_t retVal;
     Ranging_MSS_DSS_Message message;
-    uint8_t processNextTimeSlot = 0;
+    uint8_t startSensorAtNextTimeSlot = 0;
+    uint8_t startSensorAtSpecificTxTime = 0;
+    uint8_t msgMssAtNextTimeSlot = 0;
+
+    uint32_t targetTSCL;
+    uint32_t targetTSCH;
 
     // Initialize the precision timer
-    // It will be used to trigger the beginning of the next time slot at precise times
-    timerInitialization();
+    // It will be used to:
+    // - trigger call backs to the MSS
+    // - trigger sensor starts at the next time slot
+    // - trigger sensor starts at other precise times
+    timerInitialization( &gMmwDssMCB.precisionTimerTaskHandle );
 
     /* wait for new message and process all the messages received from the peer */
     while(1)
     {
-        Semaphore_pend(g_semaphoreHandle, BIOS_WAIT_FOREVER);
+        Semaphore_pend(g_readSemaphore, BIOS_WAIT_FOREVER);
 
         /* Read the message from the peer mailbox: We are not trying to protect the read
         * from the peer mailbox because this is only being invoked from a single thread */
@@ -83,25 +93,50 @@ void ranging_dssMboxReadTask(UArg arg0, UArg arg1)
                     {
                         dssReportsFailure();
                     }
+                    else
+                    {
+                        dssReportsSensorStart();
+                    }
+                    Event_post(gMmwDssMCB.eventHandle, RANGING_NEXT_TIMESLOT_STARTED_EVT);
                     break;
                 }
 
                 case CMD_DSS_TO_START_SENSOR_AT_NEXT_TIMESLOT:
                 {
-                    processNextTimeSlot = 1;
-                    memcpy(&gMmwDssMCB.nextTimeslot, &message.timeSlot, sizeof(rangingTimeSlot_t));
+                    startSensorAtNextTimeSlot = 1;
+                    memcpy(&gMmwDssMCB.nextTimeslot, &message.data.timeSlot, sizeof(rangingTimeSlot_t));
+                    break;
+                }
+
+                case CMD_DSS_TO_START_SENSOR_AT_SPECIFIC_TX_TIME:
+                {
+                    startSensorAtSpecificTxTime = 1;
+                    memcpy(&gMmwDssMCB.nextTimeslot, &message.data.timeSlot, sizeof(rangingTimeSlot_t));
+                    break;
+                }
+
+                case CMD_DSS_TO_MSG_MSS_AT_NEXT_TIMESLOT:
+                {
+                    msgMssAtNextTimeSlot = 1;
+                    memcpy(&gMmwDssMCB.nextTimeslot, &message.data.timeSlot, sizeof(rangingTimeSlot_t));
+                    break;
+                }
+
+                case MSS_SENDS_CFG_DATA_TO_DSS:
+                {
                     break;
                 }
 
                 case SET_CURRENT_TIMESLOT:
                 {
-                    memcpy(&gMmwDssMCB.currentTimeslot, &message.timeSlot, sizeof(rangingTimeSlot_t));
+                    memcpy(&gMmwDssMCB.currentTimeslot, &message.data.timeSlot, sizeof(rangingTimeSlot_t));
                     break;
                 }
 
                 case SET_NEXT_TIMESLOT:
                 {
-                    memcpy(&gMmwDssMCB.nextTimeslot, &message.timeSlot, sizeof(rangingTimeSlot_t));
+                    memcpy(&gMmwDssMCB.nextTimeslot, &message.data.timeSlot, sizeof(rangingTimeSlot_t));
+                    Event_post(gMmwDssMCB.eventHandle, RANGING_CONFIG_EVT);
                     break;
                 }
 
@@ -115,19 +150,63 @@ void ranging_dssMboxReadTask(UArg arg0, UArg arg1)
             }
         }
 
-        // Did we receive an update to the next time slot?
-        if(processNextTimeSlot)
+        // Did we receive a command to start the sensor at the next time slot?
+        if(startSensorAtNextTimeSlot)
         {
-            if(gMmwDssMCB.nextTimeslot.slotType != SLOT_TYPE_NO_OP)
+            // TX
+            if(     gMmwDssMCB.nextTimeslot.slotType ==  SLOT_TYPE_SYNCHRONIZATION_TX ||
+                    gMmwDssMCB.nextTimeslot.slotType ==  SLOT_TYPE_RANGING_START_CODE_TX)
             {
-                // Launch the timer to execute at the next time slot's beginning
-                launchSensorAtTargetTime(gMmwDssMCB.nextTimeslot.slotStartTSCL, gMmwDssMCB.nextTimeslot.slotStartTSCH);
+                // Incorporate the TX delay after slot start
+                targetTSCL = gMmwDssMCB.nextTimeslot.slotStartTSCL + gMmwDssMCB.nextTimeslot.transmitDelayAfterSlotStartsDSPCycles;
+                targetTSCH = gMmwDssMCB.nextTimeslot.slotStartTSCH;
+
+                // Check for roll over
+                if(targetTSCL < gMmwDssMCB.nextTimeslot.slotStartTSCL)
+                {
+                    targetTSCH += 1;
+                }
+
+                launchSensorAtTargetTime(targetTSCL, targetTSCH);
+                Event_post(gMmwDssMCB.eventHandle, RANGING_CONFIG_EVT);
             }
 
-            //
-            processNextTimeSlot = 0;
+            else if (gMmwDssMCB.nextTimeslot.slotType ==  SLOT_TYPE_RANGING_RESPONSE_CODE_TX)
+            {
+                // SLOT_TYPE_RANGING_RESPONSE_CODE_TX should cause a startSensorAtSpecificTxTime process
+                dssReportsFailure();
+            }
+
+            // RX
+            else
+            {
+                launchSensorAtTargetTime(gMmwDssMCB.nextTimeslot.slotStartTSCL, gMmwDssMCB.nextTimeslot.slotStartTSCH);
+                Event_post(gMmwDssMCB.eventHandle, RANGING_CONFIG_EVT);
+            }
+            startSensorAtNextTimeSlot = 0;
         }
 
+        // Did we receive a command to TX at a specific time?
+        if(startSensorAtSpecificTxTime)
+        {
+            if( gMmwDssMCB.nextTimeslot.slotType !=  SLOT_TYPE_RANGING_RESPONSE_CODE_TX )
+            {
+                dssReportsFailure();
+            }
+            else
+            {
+                launchSensorAtTargetTime(gMmwDssMCB.nextTimeslot.txResponseStartTSCL, gMmwDssMCB.nextTimeslot.txResponseStartTSCH);
+            }
+            Event_post(gMmwDssMCB.eventHandle, RANGING_CONFIG_EVT);
+            startSensorAtSpecificTxTime = 0;
+        }
+
+        // Did we receive a command to wake up the MSS at the next time slot?
+        if(msgMssAtNextTimeSlot)
+        {
+            msgMssAtTargetTime(gMmwDssMCB.nextTimeslot.slotStartTSCL, gMmwDssMCB.nextTimeslot.slotStartTSCH);
+            msgMssAtNextTimeSlot = 0;
+        }
     }
 }
 

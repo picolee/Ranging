@@ -77,14 +77,11 @@
 #include <inc/ranging_dpc_internal.h>
 #include <inc/ranging_dpc.h>
 #include <inc/ranging_dss.h>
+#include <shared/ranging_rfConfig.h>
 
 #include <ti/alg/mmwavelib/mmwavelib.h>
 
 #define DBG_DPC_OBJDET
-
-#ifdef DBG_DPC_OBJDET
-ObjDetObj     *gObjDetObj;
-#endif
 
 #pragma SET_CODE_SECTION(".l1pcode")
 
@@ -386,16 +383,14 @@ void _DPC_Objdet_Assert(DPM_Handle handle, int32_t expression,
  */
 void DPC_Ranging_chirpEvent (DPM_DPCHandle handle)
 {
-    uint32_t        chirpTimeLow = Cycleprofiler_getTimeStamp();
-    uint32_t        chirpTimeHigh = TSCH;
-    ObjDetObj       *objDetObj = (ObjDetObj *) handle;
-    uint32_t        margin;
+    uint32_t                    chirpTimeLow = Cycleprofiler_getTimeStamp();
+    uint32_t                    chirpTimeHigh = TSCH;
+    rangingDataPathObject_t     *objDetObj = (rangingDataPathObject_t *) handle;
+    uint32_t                    margin;
 
     objDetObj->rangingData.chirpStartTimeLow = chirpTimeLow;
     objDetObj->rangingData.chirpStartTimeHigh = chirpTimeHigh;
     memset(&objDetObj->rangingData.detectionStats, 0, sizeof(Ranging_PRN_Detection_Stats));
-    objDetObj->rangingData.responseStartTimeLow = 0;
-    objDetObj->rangingData.responseStartTimeHigh = 0;
 
     // Make sure we're not still processing
 //    if( !objDetObj->interSubFrameProcToken )
@@ -482,9 +477,6 @@ static int32_t DPC_ObjDetDSP_rangeConfig
     /* static configuration */
     rangeCfg.staticCfg.ADCBufData           = staticCfg->ADCBufData;
     rangeCfg.staticCfg.numChirpsPerFrame    = staticCfg->numChirpsPerFrame;
-    rangeCfg.staticCfg.numTxAntennas        = staticCfg->numTxAntennas;
-    rangeCfg.staticCfg.numVirtualAntennas   = staticCfg->numVirtualAntennas;
-    rangeCfg.staticCfg.adcSampleRate        = staticCfg->adcSampleRate;
     rangeCfg.staticCfg.rxPrn                = staticCfg->rxPrn;
 
     /* radarCube */
@@ -631,7 +623,7 @@ static void DPC_ObjDetDSP_quadFit(float *x, float*y, float *xv, float *yv)
  *
  * \ingroup DPC_RANGING__INTERNAL_FUNCTION
  */
-static int32_t DPC_ObjDetDSP_reconfigSubFrame(ObjDetObj *objDetObj, uint8_t subFrameIndx)
+static int32_t DPC_ObjDetDSP_reconfigSubFrame(rangingDataPathObject_t *objDetObj, uint8_t subFrameIndx)
 {
     int32_t retVal = 0;
     SubFrameObj *subFrmObj;
@@ -664,7 +656,7 @@ exit:
  */
 static inline int32_t DPC_ObjDetDSP_initDPU
 (
-    ObjDetObj     *objDetObj,
+    rangingDataPathObject_t     *objDetObj,
     uint8_t       numSubFrames
 )
 {
@@ -704,7 +696,7 @@ exit:
  */
 static inline int32_t DPC_ObjDetDSP_deinitDPU
 (
-    ObjDetObj     *objDetObj,
+    rangingDataPathObject_t     *objDetObj,
     uint8_t       numSubFrames
 )
 {
@@ -768,7 +760,7 @@ exit:
  *
  *  \ingroup DPC_RANGING__INTERNAL_FUNCTION
  */
-#pragma FUNCTION_OPTIONS(DPC_ObjDetDSP_preStartConfig, "--opt_for_speed")
+//#pragma FUNCTION_OPTIONS(DPC_ObjDetDSP_preStartConfig, "--opt_for_speed")
 #pragma CODE_SECTION(DPC_ObjDetDSP_preStartConfig, ".l1pcode")
 static int32_t DPC_ObjDetDSP_preStartConfig
 (
@@ -825,30 +817,24 @@ static int32_t DPC_ObjDetDSP_preStartConfig
     DPC_ObjDetDSP_MemPoolReset(CoreL2RamObj);
     DPC_ObjDetDSP_MemPoolReset(CoreL1RamObj);
 
-    // L3 allocations
+    // L3 allocations - only used for RX
     // ADC Data - complex array of 2 byte values
-    dataSize = staticCfg->ADCBufData.dataProperty.numAdcSamples * staticCfg->numChirpsPerFrame *
-            staticCfg->ADCBufData.dataProperty.numRxAntennas * sizeof(cmplx16ImRe_t);
+    dataSize = staticCfg->ADCBufData.dataProperty.numAdcSamples * sizeof(cmplx16ImRe_t);
 
     // Magnitude - complex array of 2 byte values - magnitudeDataL3
-    dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * staticCfg->numChirpsPerFrame *
-            staticCfg->ADCBufData.dataProperty.numRxAntennas * sizeof(cmplx16ImRe_t);
+    dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * sizeof(cmplx16ImRe_t);
 
     // FFT data - complex array of 2 byte values - fftOfMagnitudeL3
-    dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * staticCfg->numChirpsPerFrame *
-            staticCfg->ADCBufData.dataProperty.numRxAntennas * sizeof(cmplx16ImRe_t);
+    dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * sizeof(cmplx16ImRe_t);
 
     // Vector Multiply - complex array of 4 byte values - twice as large as others - vectorMultiplyOfFFtedDataL3
-    dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * staticCfg->numChirpsPerFrame *
-            staticCfg->ADCBufData.dataProperty.numRxAntennas * sizeof(cmplx32ImRe_t);
+    dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * sizeof(cmplx32ImRe_t);
 
     // IFFT - complex array of 4 byte values - twice as large as others - iFftDataL3
-    dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * staticCfg->numChirpsPerFrame *
-            staticCfg->ADCBufData.dataProperty.numRxAntennas * sizeof(cmplx32ImRe_t);
+    dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * sizeof(cmplx32ImRe_t);
 
     // MAG IFFT - complex array of 4 byte values - twice as large as others - magIfftDataL3
-    dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * staticCfg->numChirpsPerFrame *
-            staticCfg->ADCBufData.dataProperty.numRxAntennas * sizeof(cmplx32ImRe_t);
+    dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * sizeof(cmplx32ImRe_t);
 
     // Complex Conjugate of Gold Code - complex array of 2 byte values - fftGoldCodeL3_16kB
     dataSize = dataSize + staticCfg->ADCBufData.dataProperty.numAdcSamples * sizeof(cmplx16ImRe_t);
@@ -881,6 +867,17 @@ static int32_t DPC_ObjDetDSP_preStartConfig
 
         if (radarCube.data == NULL)
         {
+            if(dataSize > preStartCfg->shareMemCfg.radarCubeMem.size)
+            {
+                dataSize += preStartCfg->shareMemCfg.radarCubeMem.size;
+            }
+            else
+            {
+                dataSize -= preStartCfg->shareMemCfg.radarCubeMem.size;
+            }
+            radarCube.data = DPC_ObjDetDSP_MemPoolAlloc(L3ramObj, radarCube.dataSize,
+                                                     DPC_RANGING_RADAR_CUBE_DATABUF_BYTE_ALIGNMENT);
+            preStartCfg->shareMemCfg.radarCubeMem.size--;
             retVal = DPC_RANGING_ENOMEM__L3_RAM_RADAR_CUBE;
             goto exit;
         }
@@ -937,7 +934,7 @@ static void DPC_Ranging_frameStart (DPM_DPCHandle handle)
     uint32_t        frameTimeLow = Cycleprofiler_getTimeStamp();
     uint32_t        frameTimeHigh = TSCH;
 
-    ObjDetObj     *objDetObj = (ObjDetObj *) handle;
+    rangingDataPathObject_t     *objDetObj = (rangingDataPathObject_t *) handle;
 
     objDetObj->rangingData.frameStartTimeLow    = frameTimeLow;
     objDetObj->rangingData.frameStartTimeHigh   = frameTimeHigh;
@@ -981,10 +978,10 @@ static void DPC_Ranging_frameStart (DPM_DPCHandle handle)
  */
 static int32_t DPC_Ranging_start (DPM_DPCHandle handle)
 {
-    ObjDetObj   *objDetObj;
+    rangingDataPathObject_t   *objDetObj;
     int32_t retVal = 0;
 
-    objDetObj = (ObjDetObj *) handle;
+    objDetObj = (rangingDataPathObject_t *) handle;
     DebugP_assert (objDetObj != NULL);
 
     objDetObj->stats.frameStartIntCounter = 0;
@@ -1025,9 +1022,9 @@ static int32_t DPC_Ranging_start (DPM_DPCHandle handle)
  */
 static int32_t DPC_Ranging_stop (DPM_DPCHandle handle)
 {
-    ObjDetObj   *objDetObj;
+    rangingDataPathObject_t   *objDetObj;
 
-    objDetObj = (ObjDetObj *) handle;
+    objDetObj = (rangingDataPathObject_t *) handle;
     DebugP_assert (objDetObj != NULL);
 
     /* We can be here only after complete frame processing is done, which means
@@ -1064,9 +1061,9 @@ int32_t DPC_Ranging_execute
     DPM_Buffer*     ptrResult
 )
 {
-    ObjDetObj   *objDetObj;
+    rangingDataPathObject_t   *objDetObj;
     SubFrameObj *subFrmObj;
-    rangingDSPObj *rangingObj;
+    rangingDSPObj_t *rangingObj;
     DPU_RangingDSP_OutParams outRanging;
     DPC_Ranging_ProcessCallBackCfg *processCallBack;
     DPC_Ranging_ExecuteResult *result;
@@ -1074,7 +1071,7 @@ int32_t DPC_Ranging_execute
     uint8_t numChirpsPerChirpEvent;
     int32_t i;
 
-    objDetObj = (ObjDetObj *) handle;
+    objDetObj = (rangingDataPathObject_t *) handle;
     DebugP_assert (objDetObj != NULL);
     DebugP_assert (ptrResult != NULL);
 
@@ -1084,7 +1081,7 @@ int32_t DPC_Ranging_execute
     result = &objDetObj->executeResult;
 
     subFrmObj = &objDetObj->subFrameObj[objDetObj->subFrameIndx];
-    rangingObj = (rangingDSPObj *)subFrmObj->dpuRangeObj;
+    rangingObj = (rangingDSPObj_t *)subFrmObj->dpuRangeObj;
     numChirpsPerChirpEvent = subFrmObj->staticCfg.ADCBufData.dataProperty.numChirpsPerChirpEvent;
 
     /*==============================================
@@ -1137,10 +1134,8 @@ int32_t DPC_Ranging_execute
         result->rangingData->magIfftTime                = outRanging.stats.magIfftTime;
 
         /* populate DPM_resultBuf - first pointer and size are for results of the processing */
-        result->radarCube.data = rangingObj->radarCubebuf;
-        result->radarCube.dataSize = rangingObj->DPParams.numAdcSamples * \
-                rangingObj->DPParams.numChirpsPerFrame * \
-                rangingObj->DPParams.numRxAntennas * sizeof(cmplx16ReIm_t);
+        result->radarCube.data = rangingObj->ADCDataL3;
+        result->radarCube.dataSize = RX_NUM_SAMPLES * rangingObj->DPParams.numChirpsPerFrame * sizeof(cmplx16ReIm_t);
         result->radarCube.datafmt = DPIF_RADARCUBE_FORMAT_1;
 
         ptrResult->ptrBuffer[0] = (uint8_t *)result;
@@ -1160,7 +1155,6 @@ int32_t DPC_Ranging_execute
 exit:
     return retVal;
 }
-
 
 
 /**
@@ -1191,12 +1185,12 @@ static int32_t DPC_Ranging_ioctl
     uint32_t            argLen
 )
 {
-    ObjDetObj   *objDetObj;
+    rangingDataPathObject_t   *objDetObj;
     SubFrameObj *subFrmObj;
     int32_t      retVal = 0;
 
     /* Get the DSS MCB: */
-    objDetObj = (ObjDetObj *) handle;
+    objDetObj = (rangingDataPathObject_t *) handle;
     DebugP_assert(objDetObj != NULL);
 
     /* Process the commands. Process non sub-frame specific ones first
@@ -1325,6 +1319,7 @@ static int32_t DPC_Ranging_ioctl
 
                 // DPU_RangingDSP_config performs some validation, then calls rangingDSP_ParseConfig
                 // rangingDSP_ParseConfig extracts more parameters and fills out rangingDSPObj
+                // Then DPU_RangingDSP_config fills out the gold code information
 
                 retVal = DPC_ObjDetDSP_preStartConfig(subFrmObj,
                              &objDetObj->commonCfg, 
@@ -1399,7 +1394,7 @@ static DPM_DPCHandle DPC_Ranging_init
     int32_t*            errCode
 )
 {
-    ObjDetObj     *objDetObj = NULL;
+    rangingDataPathObject_t     *objDetObj = NULL;
     DPC_Ranging_InitParams *dpcInitParams;
     int32_t i;
 
@@ -1419,11 +1414,7 @@ static DPM_DPCHandle DPC_Ranging_init
 
     dpcInitParams = (DPC_Ranging_InitParams *) ptrInitCfg->arg;
 
-    objDetObj = MemoryP_ctrlAlloc(sizeof(ObjDetObj), 0);
-
-#ifdef DBG_DPC_OBJDET
-    gObjDetObj = objDetObj;
-#endif
+    objDetObj = MemoryP_ctrlAlloc(sizeof(rangingDataPathObject_t), 0);
 
     DebugP_log1("ObjDet DPC: objDetObj address = %d\n", (uint32_t) objDetObj);
 
@@ -1434,7 +1425,7 @@ static DPM_DPCHandle DPC_Ranging_init
     }
 
     /* Initialize memory */
-    memset((void *)objDetObj, 0, sizeof(ObjDetObj));
+    memset((void *)objDetObj, 0, sizeof(rangingDataPathObject_t));
 
     /* Copy over the DPM configuration: */
     memcpy ((void*)&objDetObj->dpmInitCfg, (void*)ptrInitCfg, sizeof(DPM_InitCfg));
@@ -1457,7 +1448,7 @@ exit:
     {
         if(objDetObj != NULL)
         {
-            MemoryP_ctrlFree(objDetObj, sizeof(ObjDetObj));
+            MemoryP_ctrlFree(objDetObj, sizeof(rangingDataPathObject_t));
             objDetObj = NULL;
         }
     }
@@ -1482,7 +1473,7 @@ exit:
  */
 static int32_t DPC_Ranging_deinit (DPM_DPCHandle handle)
 {
-    ObjDetObj *objDetObj = (ObjDetObj *) handle;
+    rangingDataPathObject_t *objDetObj = (rangingDataPathObject_t *) handle;
     int32_t retVal = 0;
 
     if (handle == NULL)
@@ -1493,7 +1484,7 @@ static int32_t DPC_Ranging_deinit (DPM_DPCHandle handle)
 
     retVal = DPC_ObjDetDSP_deinitDPU(objDetObj, RL_MAX_SUBFRAMES);
 
-    MemoryP_ctrlFree(handle, sizeof(ObjDetObj));
+    MemoryP_ctrlFree(handle, sizeof(rangingDataPathObject_t));
 
 exit:
     return (retVal);

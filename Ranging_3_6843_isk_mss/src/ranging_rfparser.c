@@ -412,7 +412,6 @@ static int32_t Ranging_RFParser_parseCtrlConfig
         //add check to make sure lambda/2
         //check for rxAnt -= 1, 2, 4 and their limitations
     }
-    outParams->numRxAntennas = numRxAntennas;
 
 
 
@@ -468,10 +467,6 @@ static int32_t Ranging_RFParser_parseCtrlConfig
             foundValidProfile = true;
         }
 
-        // Hard coded
-        outParams->numTxAntennas = 0;
-        outParams->numVirtualAntennas = 0;
-
         /* found valid chirps for the frame; set remaining parameters */
         if (foundValidProfile == true) {
             rlProfileCfg_t  profileCfg;
@@ -508,8 +503,6 @@ static int32_t Ranging_RFParser_parseCtrlConfig
             outParams->centerFreq           =   centerFreq;
             
 #ifdef RANGING_RFPARSER_DBG
-            System_printf("Ant setting virtualAzim: %d , virtual Elev :%d\n",
-                            outParams->numVirtualAntAzim, outParams->numVirtualAntElev);
             System_printf("startFreqConst: %d\n", profileCfg.startFreqConst);
             System_printf("rfFreqScaleFactor: %f\n", rfFreqScaleFactor);
             System_printf("bandwidth : %f GHz\n", bandwidth*1.e-9);
@@ -576,7 +569,7 @@ static int32_t Ranging_RFParser_parseADCBufCfg
     outParams->adcBufChanDataSize = (outParams->adcBufChanDataSize + 15U) / 16U * 16U;
 
     /* Calculate max possible chirp threshold */
-    bytesPerChirp = outParams->adcBufChanDataSize * outParams->numRxAntennas;
+    bytesPerChirp = outParams->adcBufChanDataSize;
 
     /* find maximum number of full chirps that can fit in the ADCBUF memory, while
        also being able to divide numChirpsPerFrame, we do not want remainder processing */

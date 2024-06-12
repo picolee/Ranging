@@ -64,8 +64,8 @@
 #include <inc/ranging_mss.h>
 #include <inc/ranging_adcconfig.h>
 #include <inc/ranging_rfparser.h>
-#include <inc/gold_code.h>
 #include <inc/state_machine.h>
+#include <shared/gold_code.h>
 #include <shared/ranging_rfConfig.h>
 #include <shared/ranging_timeslot.h>
 
@@ -353,6 +353,9 @@ int32_t Ranging_CreateReceiveConfiguration(float frequencyInGhz)
     MMWave_ProfileHandle    profileHandle;
     MMWave_ProfileHandle*   ptrBaseCfgProfileHandle;
     rlChirpCfg_t            chirpCfg;
+    MMWave_ErrorLevel       errorLevel;
+    int16_t                 mmWaveErrorCode;
+    int16_t                 subsysErrorCode;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Profile Config Zero          profileCfg 0 63.95 3 5 1280 0 0 0 0 4096 4000 0 0 158
@@ -368,14 +371,31 @@ int32_t Ranging_CreateReceiveConfiguration(float frequencyInGhz)
         ptrBaseCfgProfileHandle = &gMmwMssMCB.cfg.ctrlCfg.u.advancedFrameCfg.profileHandle[0U];
     }
 
+
     // Check to see if a receive profile is already there
-    if(ptrBaseCfgProfileHandle[RECEIVE_PROFILE_NUMBER] != NULL)
+    if(MMWave_getProfileHandle(gMmwMssMCB.ctrlHandle, RECEIVE_PROFILE_NUMBER, &profileHandle, &errCode))
     {
-        // Delete the profile
-        // This also deletes all chirps associated with the profile
-        if (MMWave_delProfile (gMmwMssMCB.ctrlHandle, ptrBaseCfgProfileHandle[RECEIVE_PROFILE_NUMBER], &errCode))
+        MMWave_decodeError (errCode, &errorLevel, &mmWaveErrorCode, &subsysErrorCode);
+        if(mmWaveErrorCode == MMWAVE_ENOTFOUND)
         {
-            /* Error: Unable to add the profile. Return the error code back */
+            // This is fine - no transmit profile exists, so we can add it
+        }
+        else
+        {
+            // Error: Display the error message: //
+            System_printf ("Error: MMWave_getProfileHandle failed [Error code: %d Subsystem: %d]\n",
+                            mmWaveErrorCode, subsysErrorCode);
+            return errCode;
+        }
+
+    }
+    else
+    {
+        // The transmit profile is already there - delete it
+        // This also deletes all chirps associated with the profile
+        if (MMWave_delProfile (gMmwMssMCB.ctrlHandle, profileHandle, &errCode))
+        {
+            /* Error: Unable to delete the profile. Return the error code back */
             return errCode;
         }
     }
@@ -480,7 +500,7 @@ int32_t Ranging_ActivateReceiveConfiguration()
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpStartIdx      = 0;          // chirpStartIdx
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpEndIdx        = 0;          // chirpEndIdx
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numLoops           = 1;          // numLoops
-    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numFrames          = 0;          // numFrames
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numFrames          = 1;          // numFrames
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.framePeriodicity   = (uint32_t)((float)FRAME_PERIOD_MS * 1000000 / 5);  // framePeriodicity
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.triggerSelect      = 1;                                    // triggerSelect
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.frameTriggerDelay  = (uint32_t)((float)0 * 1000000 / 5);   // frameTriggerDelay
@@ -499,6 +519,9 @@ int32_t Ranging_CreateTransmitConfiguration(float frequencyInGhz, uint8_t numGol
     rlChirpCfg_t            chirpCfg;
     gold_code_struct_t      goldCode;
     uint16_t                index;
+    MMWave_ErrorLevel       errorLevel;
+    int16_t                 mmWaveErrorCode;
+    int16_t                 subsysErrorCode;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Profile Config Zero          profileCfg 0 63.9494 3 0 6 0 0 0 0 64 12500 0 0 158
@@ -513,13 +536,29 @@ int32_t Ranging_CreateTransmitConfiguration(float frequencyInGhz, uint8_t numGol
     }
 
     // Check to see if a transmit profile is already there
-    if(ptrBaseCfgProfileHandle[TRANSMIT_PROFILE_NUMBER] != NULL)
+    if(MMWave_getProfileHandle(gMmwMssMCB.ctrlHandle, TRANSMIT_PROFILE_NUMBER, &profileHandle, &errCode))
     {
-        // Delete the profile
-        // This also deletes all chirps associated with the profile
-        if (MMWave_delProfile (gMmwMssMCB.ctrlHandle, ptrBaseCfgProfileHandle[TRANSMIT_PROFILE_NUMBER], &errCode))
+        MMWave_decodeError (errCode, &errorLevel, &mmWaveErrorCode, &subsysErrorCode);
+        if(mmWaveErrorCode == MMWAVE_ENOTFOUND)
         {
-            /* Error: Unable to add the profile. Return the error code back */
+            // This is fine - no transmit profile exists, so we can add it
+        }
+        else
+        {
+            // Error: Display the error message: //
+            System_printf ("Error: MMWave_getProfileHandle failed [Error code: %d Subsystem: %d]\n",
+                            mmWaveErrorCode, subsysErrorCode);
+            return errCode;
+        }
+
+    }
+    else
+    {
+        // The transmit profile is already there - delete it
+        // This also deletes all chirps associated with the profile
+        if (MMWave_delProfile (gMmwMssMCB.ctrlHandle, profileHandle, &errCode))
+        {
+            /* Error: Unable to delete the profile. Return the error code back */
             return errCode;
         }
     }
@@ -642,9 +681,9 @@ int32_t Ranging_ActivateTransmitConfiguration()
 
     /* Populate the frame configuration: */
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpStartIdx      = 1;          // chirpStartIdx
-    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpEndIdx        = 64;         // chirpEndIdx
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpEndIdx        = 63;         // chirpEndIdx
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numLoops           = 1;          // numLoops
-    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numFrames          = 0;          // numFrames
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numFrames          = 1;          // numFrames
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.framePeriodicity   = (uint32_t)((float)FRAME_PERIOD_MS * 1000000 / 5);  // framePeriodicity
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.triggerSelect      = 1;                                    // triggerSelect
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.frameTriggerDelay  = (uint32_t)((float)0 * 1000000 / 5);   // frameTriggerDelay
@@ -687,14 +726,6 @@ static int32_t Ranging_CLISensorStop (int32_t argc, char* argv[])
 
 static int32_t Ranging_CLISensorStandby (int32_t argc, char* argv[])
 {
-    if ((gMmwMssMCB.sensorState == Ranging_SensorState_STOPPED) ||
-        (gMmwMssMCB.sensorState == Ranging_SensorState_INIT) ||
-        (gMmwMssMCB.sensorState == Ranging_SensorState_OPENED))
-    {
-        CLI_write ("Ignored: Sensor is already stopped\n");
-        return 0;
-    }
-
     Send_State_Machine_Standby_Message();
     return 0;
 }
@@ -753,6 +784,64 @@ static int32_t Ranging_CLIAddTimeslot (int32_t argc, char* argv[])
     return -1;
 }
 
+static int32_t Ranging_CLISetDefaultLead (int32_t argc, char* argv[])
+{
+    rangingTimeSlot_t slot;
+    clearTimeSlotList(&gMmwMssMCB.timeSlotList);
+
+    slot.slotType           = SLOT_TYPE_SYNCHRONIZATION_TX;
+    slot.frequencyInGHz     = TX_FREQUENCY_GHZ;
+    slot.prn                = SYNC_PRN;
+    slot.goldCodeNumBits    = GOLD_CODE_NUM_BITS;
+    initializeDefaultTimeSlot(&slot, slot.slotType, slot.frequencyInGHz, slot.prn, slot.goldCodeNumBits);
+    addTimeSlotToEnd(&gMmwMssMCB.timeSlotList, slot);
+
+    slot.slotType           = SLOT_TYPE_NO_OP;
+    slot.prn                = DEFAULT_PRN;
+    addTimeSlotToEnd(&gMmwMssMCB.timeSlotList, slot);
+
+    slot.slotType           = SLOT_TYPE_RANGING_START_CODE_TX;
+    addTimeSlotToEnd(&gMmwMssMCB.timeSlotList, slot);
+
+    slot.slotType           = SLOT_TYPE_RANGING_RESPONSE_CODE_RX;
+    slot.frequencyInGHz     = RX_FREQUENCY_GHZ;
+    addTimeSlotToEnd(&gMmwMssMCB.timeSlotList, slot);
+
+    // Update the state machine
+    Send_Update_Timeslots_Message( );
+
+    return 0;
+}
+
+static int32_t Ranging_CLISetDefaultFollow (int32_t argc, char* argv[])
+{
+    rangingTimeSlot_t slot;
+    clearTimeSlotList(&gMmwMssMCB.timeSlotList);
+
+    slot.slotType           = SLOT_TYPE_SYNCHRONIZATION_RX;
+    slot.frequencyInGHz     = RX_FREQUENCY_GHZ;
+    slot.prn                = SYNC_PRN;
+    slot.goldCodeNumBits    = GOLD_CODE_NUM_BITS;
+    initializeDefaultTimeSlot(&slot, slot.slotType, slot.frequencyInGHz, slot.prn, slot.goldCodeNumBits);
+    addTimeSlotToEnd(&gMmwMssMCB.timeSlotList, slot);
+
+    slot.slotType           = SLOT_TYPE_NO_OP;
+    slot.prn                = DEFAULT_PRN;
+    addTimeSlotToEnd(&gMmwMssMCB.timeSlotList, slot);
+
+    slot.slotType           = SLOT_TYPE_RANGING_START_CODE_RX;
+    addTimeSlotToEnd(&gMmwMssMCB.timeSlotList, slot);
+
+    slot.slotType           = SLOT_TYPE_RANGING_RESPONSE_CODE_TX;
+    slot.frequencyInGHz     = TX_FREQUENCY_GHZ;
+    addTimeSlotToEnd(&gMmwMssMCB.timeSlotList, slot);
+
+    // Update the state machine
+    Send_Update_Timeslots_Message( );
+
+    return 0;
+}
+
 static int32_t Ranging_CLIPrintTimeSlots (int32_t argc, char* argv[])
 {
     uint16_t index;
@@ -760,7 +849,7 @@ static int32_t Ranging_CLIPrintTimeSlots (int32_t argc, char* argv[])
     for (index = 0; index < gMmwMssMCB.timeSlotList.size; index++)
     {
         slot = getTimeSlotAtIndex(&gMmwMssMCB.timeSlotList, index);
-        printf("Slot %u: %s\tfreq (GHz): %f\tprn: %u\n", index, slotTypeNames[slot->slotType], slot->frequencyInGHz, slot->prn);
+        CLI_write("Slot %u: %s\tfreq (GHz): %f\tprn: %u\n", index, slotTypeNames[slot->slotType], slot->frequencyInGHz, slot->prn);
     }
     return 0;
 }
@@ -770,7 +859,7 @@ static int32_t Ranging_CLIPrintSlotTypes (int32_t argc, char* argv[])
     uint16_t index;
     for (index = 0; index < NUMBER_OF_SLOT_TYPES; index++)
     {
-        printf("Slot type %u: %s\n", index, slotTypeNames[index]);
+        CLI_write("Slot type %u: %s\n", index, slotTypeNames[index]);
     }
     return 0;
 }
@@ -1455,12 +1544,12 @@ void Ranging_CLIInit (uint8_t taskPriority)
     cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLISensorRun;
     cnt++;
 
-    cliCfg.tableEntry[cnt].cmd            = "addTimeslot";
+    cliCfg.tableEntry[cnt].cmd            = "addSlot";
     cliCfg.tableEntry[cnt].helpString     = "<Type><frequencyGHz><prn><goldCodeNumBits>";
     cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLIAddTimeslot;
     cnt++;
 
-    cliCfg.tableEntry[cnt].cmd            = "printTimeslots";
+    cliCfg.tableEntry[cnt].cmd            = "printSlots";
     cliCfg.tableEntry[cnt].helpString     = "No args";
     cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLIPrintTimeSlots;
     cnt++;
@@ -1468,6 +1557,16 @@ void Ranging_CLIInit (uint8_t taskPriority)
     cliCfg.tableEntry[cnt].cmd            = "printSlotTypes";
     cliCfg.tableEntry[cnt].helpString     = "No args";
     cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLIPrintSlotTypes;
+    cnt++;
+
+    cliCfg.tableEntry[cnt].cmd            = "setLead";
+    cliCfg.tableEntry[cnt].helpString     = "No args";
+    cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLISetDefaultLead;
+    cnt++;
+
+    cliCfg.tableEntry[cnt].cmd            = "setFollow";
+    cliCfg.tableEntry[cnt].helpString     = "No args";
+    cliCfg.tableEntry[cnt].cmdHandlerFxn  = Ranging_CLISetDefaultFollow;
     cnt++;
 
     /* Open the CLI: */

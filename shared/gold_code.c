@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
-#include "inc/gold_code.h"
+#include <shared/gold_code.h>
 
 #ifdef SUBSYS_DSS
 #pragma SET_CODE_SECTION(".l1pcode")
@@ -415,6 +415,51 @@ int16_t sample_gold_code_with_idle_time(
         int bit_index = (int)(time_step / total_bit_duration) % code->length;
         double within_bit_time = fmod(time_step, total_bit_duration);
         if (within_bit_time < chip_duration) 
+        {
+            sampled_gold_code->data[i] = code->data[bit_index];
+        }
+    }
+
+    return 0;
+}
+
+// Function to sample a gold code with idle time between chips
+int16_t sample_gold_code_with_idle_time_preallocated_memory(
+    gold_code_struct_t *sampled_gold_code,
+    gold_code_struct_t *code,
+    double sample_rate,
+    double chip_duration,
+    double zeros_duration,
+    int16_t *preallocated_memory,
+    uint32_t preallocated_size_bytes)
+{
+    uint32_t i;
+    double sample_time_step = 1.0 / sample_rate;
+    double total_bit_duration = chip_duration + zeros_duration;
+    double total_duration = code->length * total_bit_duration;
+    uint32_t number_of_samples = (int)(total_duration * sample_rate);
+
+    // Check if preallocated memory is sufficient
+    if (preallocated_size_bytes < number_of_samples*sizeof(int16_t))
+    {
+        return -1; // Preallocated memory is insufficient
+    }
+
+    sampled_gold_code->length = number_of_samples;
+    sampled_gold_code->data = preallocated_memory;
+    memset(sampled_gold_code->data, 0, number_of_samples*sizeof(int16_t));
+
+    if (sampled_gold_code->data == NULL)
+    {
+        return -1; // Memory allocation failed
+    }
+
+    for ( i = 0; i < number_of_samples; i++)
+    {
+        double time_step = i * sample_time_step;
+        int bit_index = (int)(time_step / total_bit_duration) % code->length;
+        double within_bit_time = fmod(time_step, total_bit_duration);
+        if (within_bit_time < chip_duration)
         {
             sampled_gold_code->data[i] = code->data[bit_index];
         }

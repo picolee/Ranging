@@ -68,7 +68,7 @@
 /* mmWave SDK Include Files: */
 #include <ti/common/sys_common.h>
 #include <ti/common/mmwave_sdk_version.h>
-#include <ti/control/dpm/dpm.h>
+//#include <ti/control/dpm/dpm.h>
 #include <ti/drivers/soc/soc.h>
 #include <ti/drivers/esm/esm.h>
 #include <ti/drivers/crc/crc.h>
@@ -95,27 +95,27 @@
 #define IPC_MAILBOX_TASK_PRIORITY           4
 #define RANGING_DPM_TASK_PRIORITY           5
 
-/*! L3 RAM buffer for results */
-// A chunk is reserved for the twiddle factor, precalculated in "computed_twiddle_factor.h"
-#define RANGING_OBJDET_L3RAM_SIZE (SOC_L3RAM_SIZE - 16U * 1024U)
-uint8_t gMmwL3[RANGING_OBJDET_L3RAM_SIZE];
-#pragma DATA_SECTION(gMmwL3, ".l3ram");
-
- /*! L2 RAM buffer for object detection DPC */
-// hwRes->fftTwiddle16x16L2_16kB            - 16kB
-// hwRes->localGoldCodeFFTBufferL2_16kB     - 16kB
-// hwRes->ifftTwiddle16x16L2_16kB           - 16kB
-// hwRes->scratchBufferL2_32kB              - 32kB
-//#define RANGING_OBJDET_L2RAM_SIZE (89U * 1024U)
-#define RANGING_OBJDET_L2RAM_SIZE (80U * 1024U)
-uint8_t gDPC_ObjDetL2Heap[RANGING_OBJDET_L2RAM_SIZE];
-#pragma DATA_SECTION(gDPC_ObjDetL2Heap, ".dpc_l2Heap");
-
- /*! L1DSRAM RAM buffer - used to hold ADC IN*/
-// L1 hwRes->adcDataInL1_16kB - 16kB
-#define RANGING_OBJDET_L1RAM_SIZE (16U * 1024U)
-uint8_t gDPC_ObjDetL1Heap[RANGING_OBJDET_L1RAM_SIZE];
-#pragma DATA_SECTION(gDPC_ObjDetL1Heap, ".dpc_l1Heap");
+///*! L3 RAM buffer for results */
+//// A chunk is reserved for the twiddle factor, precalculated in "computed_twiddle_factor.h"
+//#define RANGING_OBJDET_L3RAM_SIZE (SOC_L3RAM_SIZE - 16U * 1024U)
+//uint8_t gMmwL3[RANGING_OBJDET_L3RAM_SIZE];
+//#pragma DATA_SECTION(gMmwL3, ".l3ram");
+//
+// /*! L2 RAM buffer for object detection DPC */
+//// hwRes->fftTwiddle16x16L2_16kB            - 16kB
+//// hwRes->localGoldCodeFFTBufferL2_16kB     - 16kB
+//// hwRes->ifftTwiddle16x16L2_16kB           - 16kB
+//// hwRes->scratchBufferL2_32kB              - 32kB
+////#define RANGING_OBJDET_L2RAM_SIZE (89U * 1024U)
+//#define RANGING_OBJDET_L2RAM_SIZE (80U * 1024U)
+//uint8_t gDPC_ObjDetL2Heap[RANGING_OBJDET_L2RAM_SIZE];
+//#pragma DATA_SECTION(gDPC_ObjDetL2Heap, ".dpc_l2Heap");
+//
+// /*! L1DSRAM RAM buffer - used to hold ADC IN*/
+//// L1 hwRes->adcDataInL1_16kB - 16kB
+//#define RANGING_OBJDET_L1RAM_SIZE (16U * 1024U)
+//uint8_t gDPC_ObjDetL1Heap[RANGING_OBJDET_L1RAM_SIZE];
+//#pragma DATA_SECTION(gDPC_ObjDetL1Heap, ".dpc_l1Heap");
 
  /*! HSRAM for processing results */
 #pragma DATA_SECTION(gHSRAM, ".demoSharedMem");
@@ -149,6 +149,7 @@ DPM_Buffer  resultBuffer;
 Ranging_HSRAM gHSRAM;
 
 extern void ranging_dssMboxReadTask(UArg arg0, UArg arg1);
+extern void ranging_dssDataPathTask(UArg arg0, UArg arg1);
 
 /**************************************************************************
  ******************* Millimeter Wave Demo Functions Prototype *******************
@@ -178,7 +179,6 @@ static int32_t Ranging_copyResultToHSRAM
 );
 static void Ranging_DPC_Ranging_dpmTask(UArg arg0, UArg arg1);
 static void Ranging_sensorStopEpilog(void);
-static int32_t Ranging_eventCallbackFxn(uint16_t msgId, uint16_t sbId, uint16_t sbLen, uint8_t *payload);
 
 /**************************************************************************
  ************************* Millimeter Wave Demo Functions **********************
@@ -218,7 +218,7 @@ void Ranging_edmaInit(Ranging_DataPathObj *obj, uint8_t instance)
  */
 void Ranging_EDMA_errorCallbackFxn(EDMA_Handle handle, EDMA_errorInfo_t *errorInfo)
 {
-    gMmwDssMCB.dataPathObj.EDMA_errorInfo = *errorInfo;
+    gMmwDssMCB.edmaContainer.EDMA_errorInfo = *errorInfo;
     Ranging_debugAssert(0);
 }
 
@@ -232,7 +232,7 @@ void Ranging_EDMA_errorCallbackFxn(EDMA_Handle handle, EDMA_errorInfo_t *errorIn
 void Ranging_EDMA_transferControllerErrorCallbackFxn(EDMA_Handle handle,
                 EDMA_transferControllerErrorInfo_t *errorInfo)
 {
-    gMmwDssMCB.dataPathObj.EDMA_transferControllerErrorInfo = *errorInfo;
+    gMmwDssMCB.edmaContainer.EDMA_transferControllerErrorInfo = *errorInfo;
     Ranging_debugAssert(0);
 }
 
@@ -253,11 +253,11 @@ static void Ranging_edmaOpen(Ranging_DataPathObj *obj, uint8_t instance)
     EDMA_instanceInfo_t  edmaInstanceInfo;
     EDMA_errorConfig_t   errorConfig;
 
-    obj->edmaHandle = EDMA_open(
+    obj->edmaCfg.edmaHandle = EDMA_open(
         instance,
         &errCode, 
         &edmaInstanceInfo);
-    if (obj->edmaHandle == NULL)
+    if (    obj->edmaCfg.edmaHandle == NULL)
     {
         Ranging_debugAssert (0);
         return;
@@ -270,7 +270,7 @@ static void Ranging_edmaOpen(Ranging_DataPathObj *obj, uint8_t instance)
     errorConfig.isEnableAllTransferControllerErrors = true;
     errorConfig.callbackFxn = Ranging_EDMA_errorCallbackFxn;
     errorConfig.transferControllerCallbackFxn = Ranging_EDMA_transferControllerErrorCallbackFxn;
-    if ((errCode = EDMA_configErrorMonitoring(obj->edmaHandle, &errorConfig)) != EDMA_NO_ERROR)
+    if ((errCode = EDMA_configErrorMonitoring(obj->edmaCfg.edmaHandle, &errorConfig)) != EDMA_NO_ERROR)
     {
         //System_printf("Error: EDMA_configErrorMonitoring() failed with errorCode = %d\n", errCode);
         Ranging_debugAssert (0);
@@ -290,7 +290,7 @@ static void Ranging_edmaOpen(Ranging_DataPathObj *obj, uint8_t instance)
  */
 void Ranging_edmaClose(Ranging_DataPathObj *obj)
 {
-    EDMA_close(obj->edmaHandle);
+    EDMA_close(obj->edmaCfg.edmaHandle);
 }
 
 /**
@@ -497,7 +497,7 @@ static void Ranging_DPC_Ranging_processFrameBeginCallBackFxn(uint8_t subFrameInd
 static void Ranging_DPC_Ranging_processInterFrameBeginCallBackFxn(uint8_t subFrameIndx)
 {
     Load_update();
-    gMmwDssMCB.dataPathObj.subFrameStats[subFrameIndx].interFrameCPULoad = Load_getCPULoad();
+    gMmwDssMCB.edmaContainer.subFrameStats[subFrameIndx].interFrameCPULoad = Load_getCPULoad();
 }
 
 
@@ -605,11 +605,11 @@ static int32_t Ranging_copyResultToHSRAM
     /* Save DPC_Ranging_Data in HSRAM */
     if(result->rangingData != NULL)
     {
-        itemPayloadLen = sizeof(DPC_Ranging_Data);
+        itemPayloadLen = sizeof(DPC_Ranging_Data_t);
         if((totalHsramSize- itemPayloadLen) > 0)
         {
             memcpy(ptrCurrBuffer, (void *)result->rangingData, itemPayloadLen);
-            ptrHsramBuffer->result.rangingData = (DPC_Ranging_Data *)ptrCurrBuffer;
+            ptrHsramBuffer->result.rangingData = (DPC_Ranging_Data_t *)ptrCurrBuffer;
             ptrCurrBuffer+= itemPayloadLen;
             totalHsramSize -=itemPayloadLen;
         }
@@ -644,7 +644,7 @@ static void Ranging_DPC_Ranging_dpmTask(UArg arg0, UArg arg1)
     while (1)
     {
         /* Execute the DPM module: */
-        retVal = DPM_execute (gMmwDssMCB.dataPathObj.objDetDpmHandle, &resultBuffer);
+        retVal = DPM_execute (gMmwDssMCB.edmaContainer.objDetDpmHandle, &resultBuffer);
         if (retVal < 0)
         {
             System_printf ("Error: DPM execution failed [Error code %d]\n", retVal);
@@ -661,11 +661,11 @@ static void Ranging_DPC_Ranging_dpmTask(UArg arg0, UArg arg1)
 
                 /* Update processing stats and added it to buffer 1*/
                 Ranging_updateObjectDetStats(result->stats,
-                                                &gMmwDssMCB.dataPathObj.subFrameStats[result->subFrameIdx]);
+                                                &gMmwDssMCB.edmaContainer.subFrameStats[result->subFrameIdx]);
 
                 // Send results to MSS
                 // Copy result data to HSRAM
-                if ((retVal = Ranging_copyResultToHSRAM(&gHSRAM, result, &gMmwDssMCB.dataPathObj.subFrameStats[result->subFrameIdx])) >= 0)
+                if ((retVal = Ranging_copyResultToHSRAM(&gHSRAM, result, &gMmwDssMCB.edmaContainer.subFrameStats[result->subFrameIdx])) >= 0)
                 {
                     /* Update interframe margin with HSRAM copy time */
                     gHSRAM.outStats.interFrameProcessingMargin -= ((Cycleprofiler_getTimeStamp() - startTime)/DSP_CLOCK_MHZ);
@@ -675,7 +675,7 @@ static void Ranging_DPC_Ranging_dpmTask(UArg arg0, UArg arg1)
                     resultBuffer.ptrBuffer[1] = (uint8_t *)&gHSRAM.outStats;
                     resultBuffer.size[1] = sizeof(Ranging_output_message_stats);
 
-                    retVal = DPM_sendResult (gMmwDssMCB.dataPathObj.objDetDpmHandle, true, &resultBuffer);
+                    retVal = DPM_sendResult (gMmwDssMCB.edmaContainer.objDetDpmHandle, true, &resultBuffer);
                     if (retVal < 0)
                     {
                         System_printf ("Error: Failed to send results [Error: %d] to remote\n", retVal);
@@ -706,10 +706,15 @@ static void Ranging_dssInitTask(UArg arg0, UArg arg1)
 {
     int32_t             errCode;
     Task_Params         taskParams;
-    DPM_InitCfg         dpmInitCfg;
-    DPC_Ranging_InitParams      objDetInitParams;
+    Error_Block      eb;
+    Semaphore_Params    semParams;
 
-    // Default values
+    // Synchronization semaphore
+    Semaphore_Params_init(&semParams);
+    semParams.mode      = Semaphore_Mode_BINARY;
+    gMmwDssMCB.sensorConfigSemaphore   = Semaphore_create(0, &semParams, NULL);
+
+    // Default timeslot values
     gMmwDssMCB.currentTimeslot.slotType = SLOT_TYPE_NO_OP;
     gMmwDssMCB.nextTimeslot.slotType    = SLOT_TYPE_NO_OP;
 
@@ -720,17 +725,18 @@ static void Ranging_dssInitTask(UArg arg0, UArg arg1)
     initializeMailboxWithRemote(IPC_MAILBOX_TASK_PRIORITY,
                                 MAILBOX_TYPE_DSS,
                                 MAILBOX_TYPE_MSS,
-                                &gMmwDssMCB.mboxTaskHandle,
-                                &ranging_dssMboxReadTask);
+                                &gMmwDssMCB.mboxReadTaskHandle,
+                                &ranging_dssMboxReadTask,
+                                &gMmwDssMCB.mboxWriteTaskHandle);
 
     //*****************************************************************************
     //* Driver Open/Configuraiton:
     //*****************************************************************************
     // Initialize EDMA
-    Ranging_edmaInit(&gMmwDssMCB.dataPathObj, DPC_RANGING_DSP_EDMA_INSTANCE);
+    Ranging_edmaInit(&gMmwDssMCB.edmaContainer, DPC_RANGING_DSP_EDMA_INSTANCE);
 
     // Use instance 1 on DSS
-    Ranging_edmaOpen(&gMmwDssMCB.dataPathObj, DPC_RANGING_DSP_EDMA_INSTANCE);
+    Ranging_edmaOpen(&gMmwDssMCB.edmaContainer, DPC_RANGING_DSP_EDMA_INSTANCE);
 
     ////////////////////////////////////////////////////////////////////////////////
     // mmWave: Initialization of the high level module
@@ -739,9 +745,10 @@ static void Ranging_dssInitTask(UArg arg0, UArg arg1)
     // Perform MMWave_init and MMWave_sync
     initializeMMWaveSystem();
 
-    /*****************************************************************************
-     * Initialization of the DPM Module:
-     *****************************************************************************/
+    ///////////////////////////////////////////////////////////////////////////////
+    // Initialization of the DPM Module:
+    ///////////////////////////////////////////////////////////////////////////////
+    /*
     memset ((void *)&objDetInitParams, 0, sizeof(DPC_Ranging_InitParams));
 
     objDetInitParams.L3ramCfg.addr = (void *)&gMmwL3[0];
@@ -751,10 +758,10 @@ static void Ranging_dssInitTask(UArg arg0, UArg arg1)
     objDetInitParams.CoreL1RamCfg.addr = &gDPC_ObjDetL1Heap[0];
     objDetInitParams.CoreL1RamCfg.size = sizeof(gDPC_ObjDetL1Heap);
 
-    /* initialize edma handles, unused handles will remain NULL to to memset above */
-    objDetInitParams.edmaHandle[DPC_RANGING_DSP_EDMA_INSTANCE] = gMmwDssMCB.dataPathObj.edmaHandle;
+    // initialize edma handles, unused handles will remain NULL to to memset above //
+    objDetInitParams.edmaHandle[DPC_RANGING_DSP_EDMA_INSTANCE] = gMmwDssMCB.edmaContainer.edmaCfg.edmaHandle;
 
-    /* DPC Call-back config */
+    // DPC Call-back config //
     objDetInitParams.processCallBackCfg.processFrameBeginCallBackFxn =
         Ranging_DPC_Ranging_processFrameBeginCallBackFxn;
     objDetInitParams.processCallBackCfg.processInterFrameBeginCallBackFxn =
@@ -762,7 +769,7 @@ static void Ranging_dssInitTask(UArg arg0, UArg arg1)
 
     memset ((void *)&dpmInitCfg, 0, sizeof(DPM_InitCfg));
 
-    /* Setup the configuration: */
+    // Setup the configuration: //
     dpmInitCfg.socHandle        = gMmwDssMCB.socHandle;
     dpmInitCfg.ptrProcChainCfg  = &gDPC_RangingCfg;
     dpmInitCfg.instanceId       = DPC_OBJDET_DSP_INSTANCEID;
@@ -771,39 +778,40 @@ static void Ranging_dssInitTask(UArg arg0, UArg arg1)
     dpmInitCfg.arg              = &objDetInitParams;
     dpmInitCfg.argSize          = sizeof(DPC_Ranging_InitParams);
 
-    /* Initialize the DPM Module: */
-    gMmwDssMCB.dataPathObj.objDetDpmHandle = DPM_init (&dpmInitCfg, &errCode);
-    if (gMmwDssMCB.dataPathObj.objDetDpmHandle == NULL)
+    // Initialize the DPM Module: //
+    gMmwDssMCB.edmaContainer.objDetDpmHandle = DPM_init (&dpmInitCfg, &errCode);
+    if (gMmwDssMCB.edmaContainer.objDetDpmHandle == NULL)
     {
         System_printf ("Error: Unable to initialize the DPM Module [Error: %d]\n", errCode);
         Ranging_debugAssert (0);
         return;
     }
 
-    /* Synchronization: This will synchronize the execution of the control module
-     * between the domains. This is a prerequiste and always needs to be invoked. */
+    // Synchronization: This will synchronize the execution of the control module
+    // between the domains. This is a prerequiste and always needs to be invoked.
     while (1)
     {
         int32_t syncStatus;
 
-        /* Get the synchronization status: */
-        syncStatus = DPM_synch (gMmwDssMCB.dataPathObj.objDetDpmHandle, &errCode);
+        // Get the synchronization status: //
+        syncStatus = DPM_synch (gMmwDssMCB.edmaContainer.objDetDpmHandle, &errCode);
         if (syncStatus < 0)
         {
-            /* Error: Unable to synchronize the framework */
+            // Error: Unable to synchronize the framework //
             System_printf ("Error: DPM Synchronization failed [Error code %d]\n", errCode);
             Ranging_debugAssert (0);
             return;
         }
         if (syncStatus == 1)
         {
-            /* Synchronization acheived: */
+            // Synchronization achieved: //
             break;
         }
-        /* Sleep and poll again: */
+        // Sleep and poll again: //
         Task_sleep(1);
     }
     System_printf ("Debug: DPM Module Sync is done\n");
+    */
 
     /*****************************************************************************
      * Launch the mmWave control execution task
@@ -812,14 +820,33 @@ static void Ranging_dssInitTask(UArg arg0, UArg arg1)
      *****************************************************************************/
     Task_Params_init(&taskParams);
     taskParams.priority  = 6;
-    taskParams.stackSize = 3300;
+    taskParams.stackSize = 4 * 1024;
     Task_create(Ranging_dssMMWaveCtrlTask, &taskParams, NULL);
 
-    /* Launch the DPM Task */
+    // Launch the DPM Task //
+    /*
     Task_Params_init(&taskParams);
     taskParams.priority = RANGING_DPM_TASK_PRIORITY;
     taskParams.stackSize = 4*1024;
     gMmwDssMCB.objDetDpmTaskHandle = Task_create(Ranging_DPC_Ranging_dpmTask, &taskParams, NULL);
+    */
+
+    /* Start the non-DPM data path task */
+
+    Error_init(&eb);
+    gMmwDssMCB.eventHandle = Event_create(NULL, &eb);
+    if (gMmwDssMCB.eventHandle == NULL)
+    {
+        /* FATAL_TBA */
+        System_printf("Error: MMWDemoDSS Unable to create an event handle\n");
+        return;
+    }
+    System_printf("Debug: MMWDemoDSS create event handle succeeded\n");
+
+    Task_Params_init(&taskParams);
+    taskParams.priority  = 5;
+    taskParams.stackSize = 3 * 1024;
+    Task_create(ranging_dssDataPathTask, &taskParams, NULL);
 
     return;
 }

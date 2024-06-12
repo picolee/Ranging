@@ -358,17 +358,9 @@ typedef struct DPU_RangingDSP_HW_Resources_t
  */
 typedef struct DPU_RangingDSP_StaticConfig_t
 {
-    /*! @brief  Number of transmit antennas */
-    uint8_t             numTxAntennas;
-
-    /*! @brief  Number of virtual antennas */
-    uint8_t             numVirtualAntennas;
 
     /*! @brief  Number of chirps per frame */
     uint16_t            numChirpsPerFrame;
-
-    /*! @brief  Sample rate of the ADC */
-    uint32_t            adcSampleRate;
 
     /*! @brief      Pointer to ADC buffer interface */
     DPIF_ADCBufData     ADCBufData;

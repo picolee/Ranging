@@ -29,9 +29,10 @@
             "command": "C:\\mingw\\mingw64\\bin\\gcc.exe",
             "args": [
                 "-g",
-                "${workspaceFolder}/src/gold_code.c",
+                "${workspaceFolder}/../shared/gold_code.c",
                 "${workspaceFolder}/unit_testing/gold_code_test.c",
                 "-I${workspaceFolder}",
+                "-I${workspaceFolder}/..",
                 "-o",
                 "${workspaceFolder}/unit_testing/gold_code_test.exe"
             ],

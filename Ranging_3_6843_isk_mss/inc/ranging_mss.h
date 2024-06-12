@@ -245,9 +245,6 @@ typedef struct Ranging_SubFrameCfg_t
 
     /*! @brief  Number of chirps per sub-frame */
     uint16_t    numChirpsPerSubFrame;
-    
-    /*! @brief  Number of virtual antennas */
-    uint8_t     numVirtualAntennas; 
 } Ranging_SubFrameCfg;
 
 /*!
@@ -288,7 +285,10 @@ typedef struct Ranging_TaskHandles_t
     Task_Handle stateMachineTask;
 
     /*! @brief   Task to communicate with the DSS */
-    Task_Handle dssMailboxTask;
+    Task_Handle dssMailboxReadTask;
+
+    /*! @brief   Task to communicate with the DSS */
+    Task_Handle dssMailboxWriteTask;
 } Ranging_taskHandles;
 
 /*!
@@ -474,8 +474,8 @@ typedef struct Ranging_MSS_MCB_t
     /*! @brief      Demo Stats */
     Ranging_MSS_Stats           stats;
 
-    /*! @brief      Results from the DSS */
-    rangingResult_t             rangingResult;
+    /*! @brief      Results from the ranging algorithm on the DSS */
+    DPC_Ranging_Data_t          rangingData;
 
     /*! @brief      Schedule for the radio */
     circularLinkedTimeSlotList_t    timeSlotList;
@@ -491,15 +491,6 @@ typedef struct Ranging_MSS_MCB_t
 
     /*! @brief   RF frequency scale factor, = 2.7 for 60GHz device, = 3.6 for 76GHz device */
     double                      rfFreqScaleFactor;
-
-    /*! @brief   Semaphore handle to signal DPM started from DPM report function */
-    Semaphore_Handle            DPMstartSemHandle;
-
-    /*! @brief   Semaphore handle to signal DPM stopped from DPM report function. */
-    Semaphore_Handle            DPMstopSemHandle;
-
-    /*! @brief   Semaphore handle to signal DPM ioctl from DPM report function. */
-    Semaphore_Handle            DPMioctlSemHandle;
 
     /*! @brief   Semaphore handle to signal DSS mailbox read from Mailbox read callback. */
     Semaphore_Handle            dssMboxSemHandle;

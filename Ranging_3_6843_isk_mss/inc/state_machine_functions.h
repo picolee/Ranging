@@ -12,7 +12,7 @@
 
 void Log_To_Uart(State_Information_Ptr_t p_stateInfo, const char* format, ...);
 void Send_State_Machine_Message( uint16_t event_flag );
-void Service_Null_Message( uint16_t event_flag );
+void Service_Null_Message(State_Information_Ptr_t p_stateInfo, uint16_t event_flag );
 void Leaving_State( State_Information_Ptr_t p_stateInfo );
 void Entering_State( State_Information_Ptr_t p_stateInfo );
 

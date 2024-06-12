@@ -69,9 +69,9 @@
 
 /* Internal include Files */
 #include <inc/rangingdsp_internal.h>
-#include <inc/gold_code.h>
+#include <shared/gold_code.h>
 #include <inc/line_fit.h>
-#include <inc/computed_twiddle_factor.h>
+//#include <inc/computed_twiddle_factor.h>
 #include <shared/ranging_rfConfig.h>
 
 /* MATH utils library Include files */
@@ -82,7 +82,6 @@
 /////////////////////////////////////////////////////////////////////////
 
 #define     DEBUG_CHECK_PARAMS      1
-#define     DETECTION_THRESHOLD     1e13f
 
 /* Macros to determine pingpong index */
 #define pingPongId(x) ((x) & 0x1U)
@@ -91,6 +90,8 @@
 
 
 #pragma SET_CODE_SECTION(".l1pcode")
+
+extern const int16_t* twiddle_factors;
 
 /////////////////////////////////////////////////////////////////////////
 //                  Internal Function prototype
@@ -103,13 +104,13 @@ static void rangingDSP_WaitEDMAComplete
 
 static int32_t rangingDSP_ConfigDataInEDMA
 (
-    rangingDSPObj          *rangingObj,
+    rangingDSPObj_t          *rangingObj,
     DPU_RangingDSP_HW_Resources  *hwRes
 );
 
 static int32_t rangingDSP_ConfigDataOutEDMA
 (
-    rangingDSPObj          *rangingObj,
+        rangingDSPObj_t          *rangingObj,
     DPU_RangingDSP_HW_Resources  *hwRes
 );
 
@@ -298,7 +299,7 @@ exit:
  */
 static int32_t rangingDSP_ConfigDataInEDMA
 (
-    rangingDSPObj          *rangingObj,
+    rangingDSPObj_t          *rangingObj,
     DPU_RangingDSP_HW_Resources  *hwRes
 )
 {
@@ -315,9 +316,10 @@ static int32_t rangingDSP_ConfigDataInEDMA
      ***/
 
     // aCount: One antenna's worth
-    syncACfg.aCount = dpParams->numAdcSamples * sizeof(cmplx16ImRe_t);
+    syncACfg.aCount = RX_NUM_SAMPLES * sizeof(cmplx16ImRe_t);
 
     // bCount is 1: We get the only antenna's worth of data in a single copy operation
+    // and there is only one chirp per chirp event
     syncACfg.bCount = 1;
 
     // srcBIdx don't care
@@ -344,6 +346,26 @@ static int32_t rangingDSP_ConfigDataInEDMA
     {
         goto exit;
     }
+
+    /* PONG src/dest address */
+    syncACfg.srcAddress = (uint32_t)rangingObj->ADCdataBuf + rangingObj->rxChanOffset;
+    syncACfg.destAddress = (uint32_t)&rangingObj->adcDataInL1_16kB;
+
+    retVal = DPEDMA_configSyncA_singleFrame(hwRes->edmaCfg.edmaHandle,
+                         &hwRes->edmaCfg.dataInPong,
+                         NULL,  /* no Chaining */
+                         &syncACfg,
+                         false,
+                         true,
+                         true,
+                         NULL,
+                         NULL);
+    if (retVal < 0)
+    {
+        goto exit;
+    }
+
+
 exit:
     return(retVal);
 }
@@ -365,7 +387,7 @@ exit:
  */
 static int32_t rangingDSP_ConfigDataOutEDMA
 (
-    rangingDSPObj          *rangingObj,
+    rangingDSPObj_t          *rangingObj,
     DPU_RangingDSP_HW_Resources  *hwRes
 )
 {
@@ -388,7 +410,7 @@ static int32_t rangingDSP_ConfigDataOutEDMA
 
 
     // aCount: One antenna's worth
-    syncACfg.aCount = dpParams->numAdcSamples * sizeof(cmplx16ImRe_t);
+    syncACfg.aCount = RX_NUM_SAMPLES * sizeof(cmplx16ImRe_t);
 
     // bCount is 1: We get the only antenna's worth of data in a single copy operation
     syncACfg.bCount = 1;
@@ -401,7 +423,7 @@ static int32_t rangingDSP_ConfigDataOutEDMA
 
     // scratchBuffer is in L2. radarCubebuf is in L3
     syncACfg.srcAddress = (uint32_t)rangingObj->scratchBufferTwoL2_32kB;
-    syncACfg.destAddress= (uint32_t)rangingObj->radarCubebuf;
+    syncACfg.destAddress= (uint32_t)rangingObj->ADCDataL3;
 
     retVal = DPEDMA_configSyncA_singleFrame_nonlib(
                 hwRes->edmaCfg.edmaHandle,
@@ -441,7 +463,7 @@ static int32_t rangingDSP_ConfigDataOutEDMA
 #pragma CODE_SECTION(rangingDSP_ParseConfig, ".l1pcode")
 static int32_t rangingDSP_ParseConfig
 (
-    rangingDSPObj          *rangingObj,
+    rangingDSPObj_t          *rangingObj,
     DPU_RangingDSP_Config  *pConfigIn
 )
 {
@@ -456,21 +478,15 @@ static int32_t rangingDSP_ParseConfig
     params    = &rangingObj->DPParams;
 
     /* Save datapath parameters */
-    params->numTxAntennas           = pStaticCfg->numTxAntennas;
-    params->numRxAntennas           = pStaticCfg->ADCBufData.dataProperty.numRxAntennas;
-    params->numVirtualAntennas      = pStaticCfg->numVirtualAntennas;
-    params->numChirpsPerChirpEvent  = pStaticCfg->ADCBufData.dataProperty.numChirpsPerChirpEvent;
-    params->numAdcSamples           = pStaticCfg->ADCBufData.dataProperty.numAdcSamples;
     params->numChirpsPerFrame       = pStaticCfg->numChirpsPerFrame;
-    params->adcSampleRate           = pStaticCfg->adcSampleRate;
 
     /* Save EDMA Handle */
-    rangingObj->edmaHandle = pHwRes->edmaCfg.edmaHandle;
+    //rangingObj->edmaCfg.edmaHandle = pHwRes->edmaCfg.edmaHandle;
 
     // Save interface buffers
     rangingObj->ADCdataBuf                  = (cmplx16ImRe_t *)pStaticCfg->ADCBufData.data;
-    rangingObj->radarCubebuf                = (cmplx16ImRe_t *)pHwRes->radarCube.data;
-    rangingObj->magnitudeDataL3             = (cmplx16ImRe_t *)(((char *)rangingObj->radarCubebuf)          + pStaticCfg->ADCBufData.dataSize);     // Each value 2 bytes
+    rangingObj->ADCDataL3                   = (cmplx16ImRe_t *)pHwRes->radarCube.data;
+    rangingObj->magnitudeDataL3             = (cmplx16ImRe_t *)(((char *)rangingObj->ADCDataL3)             + pStaticCfg->ADCBufData.dataSize);     // Each value 2 bytes
     rangingObj->fftOfMagnitudeL3            = (cmplx16ImRe_t *)(((char *)rangingObj->magnitudeDataL3)       + pStaticCfg->ADCBufData.dataSize);     // Each value 2 bytes
     rangingObj->vectorMultiplyOfFFtedDataL3 = (cmplx32ImRe_t *)(((char *)rangingObj->fftOfMagnitudeL3)      + pStaticCfg->ADCBufData.dataSize);     // Each value 4 bytes, takes up twice as much room
     rangingObj->iFftDataL3                  = (cmplx32ImRe_t *)(((char *)rangingObj->vectorMultiplyOfFFtedDataL3)    + 2 * pStaticCfg->ADCBufData.dataSize); // Each value 4 bytes
@@ -490,24 +506,12 @@ static int32_t rangingDSP_ParseConfig
 
     rangingObj->fftGoldCodeL2_16kB          = pHwRes->localGoldCodeFFTBufferL2_16kB;
 
-    if(params->numRxAntennas > 1)
-    {
-        retVal = DPU_RANGINGDSP_EINVAL;
-        goto exit;
-    }
-
     /* Prepare Ping/Pong EDMA data in/out channels */
-    rangingObj->dataInChan[0] = pHwRes->edmaCfg.dataInPing.channel;
-    rangingObj->dataInChan[1] = pHwRes->edmaCfg.dataInPong.channel;
-    rangingObj->dataOutChan[0] = pHwRes->edmaCfg.dataOutPing.channel;
-    rangingObj->dataOutChan[1] = pHwRes->edmaCfg.dataOutPong.channel;
+    //rangingObj->dataInChan[0] = pHwRes->edmaCfg.dataInPing.channel;
+    //rangingObj->dataInChan[1] = pHwRes->edmaCfg.dataInPong.channel;
+    //rangingObj->dataOutChan[0] = pHwRes->edmaCfg.dataOutPing.channel;
+    //rangingObj->dataOutChan[1] = pHwRes->edmaCfg.dataOutPong.channel;
 
-    /* Calculation used at runtime */
-    rangingObj->numSamplePerChirp       = params->numAdcSamples * params->numRxAntennas ;
-    rangingObj->numSamplePerTx          = params->numChirpsPerFrame *rangingObj->numSamplePerChirp;
-    rangingObj->DPParams.adcSampleRate  = pConfigIn->staticCfg.adcSampleRate;
-
-exit:
     return(retVal);
 }
 
@@ -533,9 +537,9 @@ DPU_RangingDSP_Handle DPU_RangingDSP_init
     int32_t*    errCode
 )
 {
-    rangingDSPObj *rangingObj;
+    rangingDSPObj_t *rangingObj;
 
-    rangingObj = MemoryP_ctrlAlloc(sizeof(rangingDSPObj), 0);
+    rangingObj = MemoryP_ctrlAlloc(sizeof(rangingDSPObj_t), 0);
     if(rangingObj == NULL)
     {
         *errCode = DPU_RANGINGDSP_ENOMEM;
@@ -543,7 +547,7 @@ DPU_RangingDSP_Handle DPU_RangingDSP_init
     }
 
     /* Initialize memory */
-    memset((void *)rangingObj, 0, sizeof(rangingDSPObj));
+    memset((void *)rangingObj, 0, sizeof(rangingDSPObj_t));
 
     return ((DPU_RangingDSP_Handle)rangingObj);
 }
@@ -574,7 +578,7 @@ int32_t DPU_RangingDSP_config
     DPU_RangingDSP_Config*    pConfig
 )
 {
-    rangingDSPObj               *rangingObj;
+    rangingDSPObj_t               *rangingObj;
     DPU_RangingDSP_StaticConfig *pStaticCfg;
     DPU_RangingDSP_HW_Resources *pHwRes;
     int32_t                     retVal = 0;
@@ -587,7 +591,7 @@ int32_t DPU_RangingDSP_config
     int16_t                     first_non_zero_index = -1;
     int16_t                     last_non_zero_index = -1;
 
-    rangingObj = (rangingDSPObj *)handle;
+    rangingObj = (rangingDSPObj_t *)handle;
     if(rangingObj == NULL)
     {
         retVal = DPU_RANGINGDSP_EINVAL;
@@ -613,11 +617,10 @@ int32_t DPU_RangingDSP_config
 
     /* Validate buffer size */
     if(
-      (pHwRes->radarCube.dataSize < pStaticCfg->ADCBufData.dataProperty.numAdcSamples * pStaticCfg->numChirpsPerFrame * sizeof(cmplx16ImRe_t) *
-                                  pStaticCfg->ADCBufData.dataProperty.numRxAntennas) ||
-      (pHwRes->adcDataInSize < sizeof(cmplx16ImRe_t) * pStaticCfg->ADCBufData.dataProperty.numAdcSamples ) ||
-      (pHwRes->scratchBufferSize < sizeof(cmplx16ImRe_t) * pStaticCfg->ADCBufData.dataProperty.numAdcSamples * pStaticCfg->ADCBufData.dataProperty.numRxAntennas * 2U) ||
-      (pHwRes->fftTwiddleSize < sizeof(cmplx16ImRe_t) * pStaticCfg->ADCBufData.dataProperty.numAdcSamples))
+      (pHwRes->radarCube.dataSize   < sizeof(cmplx16ImRe_t) * pStaticCfg->ADCBufData.dataProperty.numAdcSamples) ||
+      (pHwRes->adcDataInSize        < sizeof(cmplx16ImRe_t) * pStaticCfg->ADCBufData.dataProperty.numAdcSamples ) ||
+      (pHwRes->scratchBufferSize    < sizeof(cmplx16ImRe_t) * pStaticCfg->ADCBufData.dataProperty.numAdcSamples * 2U) ||
+      (pHwRes->fftTwiddleSize       < sizeof(cmplx16ImRe_t) * pStaticCfg->ADCBufData.dataProperty.numAdcSamples))
     {
         retVal = DPU_RANGINGDSP_EBUFFER_SIZE;
         goto exit;
@@ -657,18 +660,18 @@ int32_t DPU_RangingDSP_config
         goto exit;
     }
 
-    memcpy(rangingObj->fftTwiddle16x16L2_16kB, twiddle_factors, rangingObj->DPParams.numAdcSamples * sizeof(cmplx16ImRe_t) );
+    memcpy(rangingObj->fftTwiddle16x16L2_16kB, twiddle_factors, RX_NUM_SAMPLES * sizeof(cmplx16ImRe_t) );
 
     // Generate twiddle factors for the IFFT. This is one time
-    gen_twiddle_fft16x32((short *)rangingObj->ifftTwiddle16x32L2_16kB, rangingObj->DPParams.numAdcSamples);
+    gen_twiddle_fft16x32((short *)rangingObj->ifftTwiddle16x32L2_16kB, RX_NUM_SAMPLES);
 
     ////////////////////////////////////////////////////////////////////////////////
     // Gold code, length 2^N - 1
-    rangingObj->gold_code_n = 6;
+    rangingObj->goldCodeNumBits = 6;
     rangingObj->rxPrn = pStaticCfg->rxPrn;
     gold_code.data = NULL;
     if (generate_one_gold_sequence(
-        rangingObj->gold_code_n,
+        rangingObj->goldCodeNumBits,
         &gold_code,
         rangingObj->rxPrn))
     {
@@ -706,7 +709,7 @@ int32_t DPU_RangingDSP_config
     // Transform to complex
     // Pad with zeros out to the length of the number of samples
     // Scale by 100 to compensate for the scaling that occurs in the FFT function
-    memset(rangingObj->scratchBufferTwoL2_32kB, 0, rangingObj->DPParams.numAdcSamples*sizeof(cmplx16ImRe_t));
+    memset(rangingObj->scratchBufferTwoL2_32kB, 0, RX_NUM_SAMPLES * sizeof(cmplx16ImRe_t));
     for(index = 0; index < sampled_gold_code.length; index++)
     {
         rangingObj->scratchBufferTwoL2_32kB[index].real = sampled_gold_code.data[index]*100;
@@ -730,18 +733,18 @@ int32_t DPU_RangingDSP_config
     // FFT of the gold code
     DSP_fft16x16_imre(
             (int16_t *) rangingObj->fftTwiddle16x16L2_16kB,
-            rangingObj->DPParams.numAdcSamples,
+            RX_NUM_SAMPLES,
             (int16_t *) rangingObj->scratchBufferTwoL2_32kB,  // Source Address
             (int16_t *) rangingObj->fftGoldCodeL2_16kB );  // Destination Address
     //memcpy(rangingObj->fftOfMagnitude, rangingObj->fftGoldCode, rangingObj->DPParams.numAdcSamples * sizeof(cmplx16ImRe_t));
 
     /////////////////////////////////////////////////////////
     // Complex Conjugate
-    for(index = 0; index < rangingObj->DPParams.numAdcSamples; index++)
+    for(index = 0; index < RX_NUM_SAMPLES; index++)
     {
         rangingObj->fftGoldCodeL2_16kB[index].imag = -1*rangingObj->fftGoldCodeL2_16kB[index].imag;
     }
-    memcpy(rangingObj->fftGoldCodeL3_16kB, rangingObj->fftGoldCodeL2_16kB, rangingObj->DPParams.numAdcSamples * sizeof(cmplx16ImRe_t) );
+    memcpy(rangingObj->fftGoldCodeL3_16kB, rangingObj->fftGoldCodeL2_16kB, RX_NUM_SAMPLES * sizeof(cmplx16ImRe_t) );
 
     /////////////////////////////////////////////////////////
     // Cleanup temporary memory used for gold code generation
@@ -927,7 +930,7 @@ int32_t DPU_RangingDSP_process
 )
 {
     ranging_dpParams  *DPParams;
-    rangingDSPObj     *rangingObj;
+    rangingDSPObj_t     *rangingObj;
     EDMA_Handle         edmaHandle;
     volatile uint32_t   startTime;
     volatile uint32_t   startTime1;
@@ -938,7 +941,7 @@ int32_t DPU_RangingDSP_process
     uint16_t            index;
     Ranging_PRN_Detection_Stats * detectionStats = &outParams->stats.detectionStats;
 
-    rangingObj = (rangingDSPObj *)handle;
+    rangingObj = (rangingDSPObj_t *)handle;
     if(rangingObj == NULL)
     {
         retVal = DPU_RANGINGDSP_EINVAL;
@@ -959,11 +962,22 @@ int32_t DPU_RangingDSP_process
 
     detectionStats->wasCodeDetected = 0;
 
+    outParams->endOfChirp = false;
+
     // If we are transmitting, the number of chirps per frame is > 1
     // We only need to process data if we are receiving.
     if(DPParams->numChirpsPerFrame > 1)
     {
-        detectionStats->isTxComplete = 1;
+        /* Increment chirp count */
+        rangingObj->chirpCount++;
+
+        /* Last chirp , wait until EDMA is completed */
+        if(rangingObj->chirpCount == DPParams->numChirpsPerFrame)
+        {
+            /* Wait until last tansfer is done */
+            rangingObj->chirpCount = 0;
+            outParams->endOfChirp = true;
+        }
     }
     else
     {
@@ -972,7 +986,7 @@ int32_t DPU_RangingDSP_process
         //uint16_t            index_of_max            = 0;
         //uint32_t            max_value               = 0;
         uint16_t            num_line_fit_points     = 11;
-        cmplx16ImRe_t *     scratchPageTwo_L2_16kB  = rangingObj->scratchBufferTwoL2_32kB + DPParams->numAdcSamples;
+        cmplx16ImRe_t *     scratchPageTwo_L2_16kB  = rangingObj->scratchBufferTwoL2_32kB + RX_NUM_SAMPLES;
 
         // fftTwiddle16x16L2_16kB            - 16kB - scratchBufferOneL2_32kB first 16kB
         // localGoldCodeFFTBufferL2_16kB     - 16kB - scratchBufferOneL2_32kB last  16kB
@@ -987,33 +1001,30 @@ int32_t DPU_RangingDSP_process
         int32_t int_index_of_max;
         float32_t maxpow = 0;
 
-        edmaHandle = rangingObj->edmaHandle;
+        //edmaHandle = rangingObj->edmaCfg.edmaHandle;
         waitingTime = 0;
 
-        outParams->endOfChirp = false;
-
         detectionStats->rxPrn = rangingObj->rxPrn;
-        detectionStats->isTxComplete = 0;
 
         dataInAddr = (uint32_t)&rangingObj->ADCdataBuf[0];
 
         // Set EDMA input source Address
-        retVal = EDMA_setSourceAddress(
-                edmaHandle,
-                rangingObj->dataInChan[0],
-            (uint32_t) SOC_translateAddress(dataInAddr, SOC_TranslateAddr_Dir_TO_EDMA, NULL));
-        if (retVal != 0)
-        {
-            goto exit;
-        }
+//        retVal = EDMA_setSourceAddress(
+//                edmaHandle,
+//                rangingObj->dataInChan[0],
+//            (uint32_t) SOC_translateAddress(dataInAddr, SOC_TranslateAddr_Dir_TO_EDMA, NULL));
+//        if (retVal != 0)
+//        {
+//            goto exit;
+//        }
 
         // Transfer all of the samples for this chirp
         // It sends them into &rangingObj->adcDataIn[0]
-        EDMA_startDmaTransfer(edmaHandle, rangingObj->dataInChan[0]);
-
-        // Verify if DMA has completed for current antenna
-        rangingDSP_WaitEDMAComplete (  edmaHandle, rangingObj->dataInChan[0]);
-        waitingTime += (Cycleprofiler_getTimeStamp() - startTime1);
+//        EDMA_startDmaTransfer(edmaHandle, rangingObj->dataInChan[0]);
+//
+//        // Verify if DMA has completed for current antenna
+//        rangingDSP_WaitEDMAComplete (  edmaHandle, rangingObj->dataInChan[0]);
+//        waitingTime += (Cycleprofiler_getTimeStamp() - startTime1);
 
         ////////////////////////////////////
         // Data Processing
@@ -1023,7 +1034,7 @@ int32_t DPU_RangingDSP_process
 
         // Get the ADC data
         L1Buffer16kB = (int16_t *)&rangingObj->adcDataInL1_16kB[0];
-        memcpy(rangingObj->radarCubebuf, &rangingObj->adcDataInL1_16kB[0], DPParams->numAdcSamples * sizeof(cmplx16ImRe_t));
+        memcpy(rangingObj->ADCDataL3, &rangingObj->adcDataInL1_16kB[0], RX_NUM_SAMPLES * sizeof(cmplx16ImRe_t));
 
         ////////////////////////////////////
         // 1. Magnitude Calculation
@@ -1033,10 +1044,10 @@ int32_t DPU_RangingDSP_process
         //      Also see mmwavelib_power
         ////////////////////////////////////
         startTime1 = Cycleprofiler_getTimeStamp();
-        calcMagInt16(DPParams->numAdcSamples, L1Buffer16kB);
+        calcMagInt16(RX_NUM_SAMPLES, L1Buffer16kB);
         stopTime = Cycleprofiler_getTimeStamp();
         outParams->stats.magAdcTime = stopTime - startTime1;
-        memcpy(rangingObj->magnitudeDataL3, L1Buffer16kB, DPParams->numAdcSamples * sizeof(cmplx16ImRe_t));
+        memcpy(rangingObj->magnitudeDataL3, L1Buffer16kB, RX_NUM_SAMPLES * sizeof(cmplx16ImRe_t));
 
         ////////////////////////////////////
         // 2. FFT
@@ -1050,12 +1061,12 @@ int32_t DPU_RangingDSP_process
         startTime1 = Cycleprofiler_getTimeStamp();
         DSP_fft16x16_imre(
                 (int16_t *) rangingObj->fftTwiddle16x16L2_16kB,     // Twiddle factors
-                DPParams->numAdcSamples,                            // number of complex samples
+                RX_NUM_SAMPLES,                            // number of complex samples
                 (int16_t *) L1Buffer16kB,                           // Input
                 (int16_t *) scratchPageTwo_L2_16kB );               // Output
         stopTime = Cycleprofiler_getTimeStamp();
         outParams->stats.fftTime = stopTime - startTime1;
-        memcpy(rangingObj->fftOfMagnitudeL3, scratchPageTwo_L2_16kB, DPParams->numAdcSamples * sizeof(cmplx16ImRe_t));
+        memcpy(rangingObj->fftOfMagnitudeL3, scratchPageTwo_L2_16kB, RX_NUM_SAMPLES * sizeof(cmplx16ImRe_t));
 
         ////////////////////////////////////
         // 3. Vector Multiply
@@ -1066,7 +1077,7 @@ int32_t DPU_RangingDSP_process
         int32_t temp_two;
         int32_t temp_three;
         startTime1 = Cycleprofiler_getTimeStamp();
-        for(index = 0; index < DPParams->numAdcSamples; index++)
+        for(index = 0; index < RX_NUM_SAMPLES; index++)
         {
             // Real portion
             temp_one = ((int32_t) scratchPageTwo_L2_16kB[index].real);
@@ -1093,7 +1104,7 @@ int32_t DPU_RangingDSP_process
         }
         stopTime = Cycleprofiler_getTimeStamp();
         outParams->stats.vecmulTime = stopTime - startTime1;
-        memcpy(rangingObj->vectorMultiplyOfFFtedDataL3, vectorMultiplyBuffer, DPParams->numAdcSamples * sizeof(cmplx32ImRe_t));
+        memcpy(rangingObj->vectorMultiplyOfFFtedDataL3, vectorMultiplyBuffer, RX_NUM_SAMPLES * sizeof(cmplx32ImRe_t));
 
         ///////////////////////////////////////////////////////////////////
         // 4. IFFT
@@ -1109,33 +1120,32 @@ int32_t DPU_RangingDSP_process
         startTime1 = Cycleprofiler_getTimeStamp();
         DSP_ifft16x32(
                 (int16_t *) rangingObj->ifftTwiddle16x32L2_16kB,    // Twiddle factors (int16_t)
-                DPParams->numAdcSamples,                            // number of complex samples
+                RX_NUM_SAMPLES,                            // number of complex samples
                 (int32_t *) vectorMultiplyBuffer,                   // Input  (int32_t), scratch buffer two
                 (int32_t *) ifftBuffer );                           // Output (int32_t), scratch buffer one
         stopTime = Cycleprofiler_getTimeStamp();
         outParams->stats.ifftTime = stopTime - startTime1;
-        memcpy(rangingObj->iFftDataL3, ifftBuffer, DPParams->numAdcSamples * sizeof(cmplx32ImRe_t) );
+        memcpy(rangingObj->iFftDataL3, ifftBuffer, RX_NUM_SAMPLES * sizeof(cmplx32ImRe_t) );
 
-        // Reverse the ifft Buffer
-        for(index = 0; index < DPParams->numAdcSamples; index++)
+        //  The IFFT buffer comes back reversed, so we reverse it here
+        for(index = 0; index < RX_NUM_SAMPLES; index++)
         {
-            vectorMultiplyBuffer[index] = ifftBuffer[DPParams->numAdcSamples - 1 - index];
+            vectorMultiplyBuffer[index] = ifftBuffer[RX_NUM_SAMPLES - 1 - index];
         }
 
 
         /////////////////////////////////////////////////////////////////////
         // 5.  Calculate magnitude and find the max
         //      The maximum value of the correlation peak shows where the code started
-        //      The IFFT buffer is reversed, so we reverse it here
         /////////////////////////////////////////////////////////////////////
         startTime1 = Cycleprofiler_getTimeStamp();
         int_index_of_max = mmwavelib_powerAndMax((int32_t *) vectorMultiplyBuffer,
-                                                 DPParams->numAdcSamples,           // number of complex samples
+                                                 RX_NUM_SAMPLES,           // number of complex samples
                                                  ifftMagnitudeBuffer,
                                                  &maxpow);
         stopTime = Cycleprofiler_getTimeStamp();
         outParams->stats.magIfftTime = stopTime - startTime1;
-        memcpy(rangingObj->magIfftDataL3, ifftMagnitudeBuffer, DPParams->numAdcSamples * sizeof(float) );
+        memcpy(rangingObj->magIfftDataL3, ifftMagnitudeBuffer, RX_NUM_SAMPLES * sizeof(float) );
         detectionStats->promptValue = maxpow;
         detectionStats->promptIndex = (uint32_t) int_index_of_max;
 
@@ -1230,12 +1240,12 @@ int32_t DPU_RangingDSP_process
                     // 6a. Coarse peak time
                     //      Offset with respect to the first ADC sample in nanoseconds
                     //////////////////////////////////////////
-                    float f_index_of_max = (float)(int_index_of_max);                       // range of zero to 4095
-                    float f_adcSampleRate = (float)rangingObj->DPParams.adcSampleRate;  // 4000000
+                    float f_index_of_max = (float)(int_index_of_max);                   // range of zero to 4095
+                    float f_adcSampleRate = (float)(RX_SAMPLE_RATE_KSPS * 1000);        // 4000000
                     float f_secondsOffset = f_index_of_max/f_adcSampleRate;             // range of zero to 0.00102375 in steps of 1/adcSampleRate
 
                     // Convert to DSP CPU cycles (600000000 cycles per second (600 MHz))
-                    detectionStats->coarsePeakTimeOffsetCycles = ((uint32_t)(f_secondsOffset*DSP_CLOCK_MHZ*1e6)); // range of zero to 1023750
+                    detectionStats->coarsePeakTimeOffsetCycles = ((uint32_t)(f_secondsOffset*( (float) DSP_CLOCK_MHZ )*1e6)); // range of zero to 1023750
 
                     //////////////////////////////////////////
                     // 6b. Fine peak detection
@@ -1281,10 +1291,12 @@ int32_t DPU_RangingDSP_process
                             detectionStats->leftSlope < -1*detectionStats->rightSlope + detectionStats->leftSlope/5 )
                     {
                         detectionStats->wasCodeDetected = 1;
-                        float peak_index_fine = ((float) DPParams->numAdcSamples) - \
+                        float peak_index_fine = ((float) RX_NUM_SAMPLES) - \
                                 (detectionStats->rightIntercept - detectionStats->leftIntercept)/(detectionStats->leftSlope - detectionStats->rightSlope);
                         float f_secondsOffsetFine = peak_index_fine/f_adcSampleRate;
-                        detectionStats->RefinedPeakTimePicoseconds = (int32_t)((f_secondsOffsetFine - f_secondsOffset)*1e12);
+                        detectionStats->refinedPeakTimePicoseconds  = (int32_t)((f_secondsOffsetFine - f_secondsOffset)*1e12);
+                        float cycles_per_sample = (((float) DSP_CLOCK_MHZ ) * 1e6f ) / f_adcSampleRate;
+                        detectionStats->refinedPeakTimeDSPCycles    = (f_index_of_max - peak_index_fine) * cycles_per_sample;
                     }
                 }
             }
@@ -1295,30 +1307,29 @@ int32_t DPU_RangingDSP_process
         // Reset the gold code and FFT twiddle - in the future this could be triggered by a framestart interrupt
         memcpy(rangingObj->fftGoldCodeL2_16kB,
                rangingObj->fftGoldCodeL3_16kB,
-               DPParams->numAdcSamples * sizeof(cmplx16ImRe_t) );
+               RX_NUM_SAMPLES * sizeof(cmplx16ImRe_t) );
 
         memcpy(rangingObj->fftTwiddle16x16L2_16kB,
                rangingObj->fftTwiddle16x16L3_16kB,
-               DPParams->numAdcSamples * sizeof(cmplx16ImRe_t) );
-
+               RX_NUM_SAMPLES * sizeof(cmplx16ImRe_t) );
 
         ///////////////////////////////////////
         // Data Output
         ///////////////////////////////////////
-        outChannel = rangingObj->dataOutChan[0];
-
-        uint32_t    radarCubeAddr;
-
-        radarCubeAddr = (uint32_t)(rangingObj->radarCubebuf);
-        EDMA_setDestinationAddress(edmaHandle, outChannel,
-            (uint32_t)SOC_translateAddress((radarCubeAddr), SOC_TranslateAddr_Dir_TO_EDMA, NULL));
-
-        if(rangingObj->chirpCount > 1U)
-        {
-            startTime1 = Cycleprofiler_getTimeStamp();
-            rangingDSP_WaitEDMAComplete (  edmaHandle, outChannel);
-            waitingTime += (Cycleprofiler_getTimeStamp() - startTime1);
-        }
+//        outChannel = rangingObj->dataOutChan[0];
+//
+//        uint32_t    radarCubeAddr;
+//
+//        radarCubeAddr = (uint32_t)(rangingObj->radarCubebuf);
+//        EDMA_setDestinationAddress(edmaHandle, outChannel,
+//            (uint32_t)SOC_translateAddress((radarCubeAddr), SOC_TranslateAddr_Dir_TO_EDMA, NULL));
+//
+//        if(rangingObj->chirpCount > 1U)
+//        {
+//            startTime1 = Cycleprofiler_getTimeStamp();
+//            rangingDSP_WaitEDMAComplete (  edmaHandle, outChannel);
+//            waitingTime += (Cycleprofiler_getTimeStamp() - startTime1);
+//        }
 
         //EDMA_startDmaTransfer(edmaHandle, outChannel);
 
@@ -1333,13 +1344,10 @@ int32_t DPU_RangingDSP_process
             rangingObj->chirpCount = 0;
             outParams->endOfChirp = true;
         }
-
-        rangingObj->numProcess++;
     }
 
     /* Update outParams */
     outParams->stats.processingTime = stopTime - startTime;
-    outParams->stats.waitTime = waitingTime;
 
     rangingObj->inProgress = false;
 
@@ -1375,10 +1383,10 @@ int32_t DPU_RangingDSP_control
 )
 {
     int32_t             retVal = 0;
-    rangingDSPObj     *rangingObj;
+    rangingDSPObj_t     *rangingObj;
 
     /* Get ranging data object */
-    rangingObj = (rangingDSPObj *)handle;
+    rangingObj = (rangingDSPObj_t *)handle;
 
     /* Sanity check */
     if (rangingObj == NULL)
@@ -1428,11 +1436,11 @@ exit:
  */
 int32_t DPU_RangingDSP_deinit(DPU_RangingDSP_Handle handle)
 {
-    rangingDSPObj     *rangingObj;
+    rangingDSPObj_t     *rangingObj;
     int32_t             retVal = 0;
 
     /* Sanity Check */
-    rangingObj = (rangingDSPObj *)handle;
+    rangingObj = (rangingDSPObj_t *)handle;
     if(rangingObj == NULL)
     {
         retVal = DPU_RANGINGDSP_EINVAL;
@@ -1441,7 +1449,7 @@ int32_t DPU_RangingDSP_deinit(DPU_RangingDSP_Handle handle)
     else
     {
         /* Free memory */
-        MemoryP_ctrlFree(handle, sizeof(rangingDSPObj));
+        MemoryP_ctrlFree(handle, sizeof(rangingDSPObj_t));
     }
 exit:
     return (retVal);

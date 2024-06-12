@@ -82,13 +82,13 @@ extern "C" {
  *
  *  \ingroup DPU_RANGEPROC_INTERNAL_DATA_STRUCTURE
  */
-typedef struct rangingDSPObj_t
+typedef struct rangingDSPObj
 {
     /*! @brief     Data path common parameters */
     ranging_dpParams        DPParams;
 
     /*! @brief      The Gold code number of bits */
-    uint16_t                gold_code_n;
+    uint16_t                goldCodeNumBits;
 
     /*! @brief      The Gold code sequence number used for receive. There are 2^N+1 Gold codes */
     uint16_t                rxPrn;
@@ -105,17 +105,14 @@ typedef struct rangingDSPObj_t
     /*! @brief      Chirp counter modulo number of chirps per frame */
     uint16_t                chirpCount;
 
+    /*! @brief      Chirp counter modulo number of chirps per frame */
+    uint8_t                 areAllChirpsCompletedForThisFrame;
+
     /*! @brief     ADC data buffer RX channel offset - fixed for all channels */
     uint16_t                rxChanOffset;
 
-    /*! @brief     EDMA Handle */
-    EDMA_Handle             edmaHandle;
-
     /*! @brief     Pointer to ADC buffer - this is the only format supported */
     cmplx16ImRe_t           *ADCdataBuf;
-
-    /*! @brief     Pointer to Radar Cube buffer - this is the only format supported */
-    cmplx16ImRe_t           *radarCubebuf;
 
     /*! @brief      Points to fftGoldCodeL2_16kB. Forms 32 kB contiguous L2RAM with fftTwiddle16x16L2_16kB and fftGoldCodeL2_16kB
      *              Used to calculate the IFFT of FFT*(Complex Conjugate(FFT(Gold Code)))*/
@@ -135,6 +132,9 @@ typedef struct rangingDSPObj_t
 
     /*! @brief      ADCBUF input samples in scratch memory */
     cmplx16ImRe_t           *adcDataInL1_16kB;
+
+    /*! @brief      ADC data copied to L3 */
+    cmplx16ImRe_t           *ADCDataL3;
 
     /*! @brief      Magnitude of input samples */
     cmplx16ImRe_t           *magnitudeDataL3;
@@ -160,24 +160,9 @@ typedef struct rangingDSPObj_t
     /*! @brief      L3 storage for the FFT twiddle factors - defined in gen_twiddle_fft16x32.h */
     cmplx16ImRe_t           *fftTwiddle16x16L3_16kB;
 
-    /*! @brief     Number of samples per chirp */
-    uint32_t                numSamplePerChirp;
-
-    /*! @brief     Number of samples per Tx */
-    uint32_t                numSamplePerTx;
-
-    /*! @brief      Data In EDMA channel id */
-    uint8_t                 dataInChan[2];
-
-    /*! @brief      Data Out EDMA channel id */
-    uint8_t                 dataOutChan[2];
-
     /*! @brief     ranging DPU is in processing state */
     bool                    inProgress;
-
-    /*! @brief     Total number of ranging DPU processing */
-    uint32_t                numProcess;
-}rangingDSPObj;
+}rangingDSPObj_t;
 
 #ifdef __cplusplus
 }

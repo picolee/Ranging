@@ -9,20 +9,14 @@
 #include <shared/ranging_rfConfig.h>
 #include <inc/ranging_dpc.h>  // for DPC_Ranging_Data
 
-#ifndef SUBSYS_DSS
-#ifndef DSP_CLOCK_MHZ
-#define DSP_CLOCK_MHZ 600
-#endif
-#endif
-
 // Slot type names table
 const char* slotTypeNames[NUMBER_OF_SLOT_TYPES] = {
     "NO_OP",
     "SYNC_RX",
-    "SYNC_TX",
     "START_CODE_RX",
-    "START_CODE_TX",
     "RESPONSE_CODE_RX",
+    "SYNC_TX",
+    "START_CODE_TX",
     "RESPONSE_CODE_TX"
 };
 
@@ -33,11 +27,10 @@ int32_t initializeTimeSlot(
     uint32_t slotStartTSCL,
     uint32_t slotStartTSCH,
     uint32_t slotDurationDSPCycles,
-    uint32_t slotRxStartEarlyByDSPCycles,
-    uint32_t slotGuardBeforeDurationDSPCycles,
-    uint32_t slotGuardAfterDurationDSPCycles,
-    uint16_t frequencyInGHz,
-    float prn,
+    uint32_t transmitDelayAfterSlotStartsDSPCycles,
+    uint32_t responseTransmitDelayAfterSlotStartsDSPCycles,
+    float    frequencyInGHz,
+    uint16_t prn,
     uint8_t goldCodeNumBits
 )
 {
@@ -46,16 +39,15 @@ int32_t initializeTimeSlot(
         return -1;
     }
 
-    slot->slotType = slotType;
-    slot->slotStartTSCL = slotStartTSCL;
-    slot->slotStartTSCH = slotStartTSCH;
-    slot->slotDurationDSPCycles = slotDurationDSPCycles;
-    slot->slotRxStartEarlyByDSPCycles = slotRxStartEarlyByDSPCycles;
-    slot->slotGuardBeforeDurationDSPCycles = slotGuardBeforeDurationDSPCycles;
-    slot->slotGuardAfterDurationDSPCycles = slotGuardAfterDurationDSPCycles;
-    slot->frequencyInGHz = frequencyInGHz;
-    slot->prn = prn;
-    slot->goldCodeNumBits                   = goldCodeNumBits;
+    slot->slotType                              = slotType;
+    slot->slotStartTSCL                         = slotStartTSCL;
+    slot->slotStartTSCH                         = slotStartTSCH;
+    slot->slotDurationDSPCycles                 = slotDurationDSPCycles;
+    slot->transmitDelayAfterSlotStartsDSPCycles = transmitDelayAfterSlotStartsDSPCycles;
+    slot->responseTransmitDelayAfterRxDSPCycles = responseTransmitDelayAfterSlotStartsDSPCycles;
+    slot->frequencyInGHz                        = frequencyInGHz;
+    slot->prn                                   = prn;
+    slot->goldCodeNumBits                       = goldCodeNumBits;
 
     return 0;
 }
@@ -63,8 +55,8 @@ int32_t initializeTimeSlot(
 // Function to initialize a timeslot with default parameters
 int32_t initializeDefaultTimeSlot(rangingTimeSlot_t *slot,
                                   rangingTimeSlotType_t slotType,
-                                  uint16_t frequencyInGHz,
-                                  float prn,
+                                  float frequencyInGHz,
+                                  uint16_t prn,
                                   uint8_t goldCodeNumBits)
 {
     if (slot == NULL)
@@ -73,115 +65,136 @@ int32_t initializeDefaultTimeSlot(rangingTimeSlot_t *slot,
     }
 
     // Defines in ranging_rfConfig.h
-    slot->slotType                          = slotType;
-    slot->slotStartTSCL                     = 0;
-    slot->slotStartTSCH                     = 0;
-    slot->slotDurationDSPCycles             = TIME_SLOT_DURATION_DSP_CYCLES;
-    slot->slotRxStartEarlyByDSPCycles       = RX_START_EARLY_DSP_CYCLES;
-    slot->slotGuardBeforeDurationDSPCycles  = PRE_GUARD_DURATION_DSP_CYCLES;
-    slot->slotGuardAfterDurationDSPCycles   = POST_GUARD_DURATION_DSP_CYCLES;
-    slot->frequencyInGHz                    = frequencyInGHz;
-    slot->prn                               = prn;
-    slot->goldCodeNumBits                   = goldCodeNumBits;
+    slot->slotType                                      = slotType;
+    slot->slotStartTSCL                                 = 0;
+    slot->slotStartTSCH                                 = 0;
+    slot->slotDurationDSPCycles                         = TIME_SLOT_DURATION_DSP_CYCLES;
+    slot->transmitDelayAfterSlotStartsDSPCycles         = TX_DELAY_START_DSP_CYCLES;
+    slot->responseTransmitDelayAfterRxDSPCycles         = RESPONSE_CODE_DELAY_DSP_CYCLES;
+    slot->frequencyInGHz                                = frequencyInGHz;
+    slot->prn                                           = prn;
+    slot->goldCodeNumBits                               = goldCodeNumBits;
 
     return 0;
 }
 
-
-static void computeFirstTimeSlot(rangingTimeSlot_t currentTimeslot, rangingTimeSlot_t *nextTimeslot, DPC_Ranging_Data    *rangingData)
+static void computeRxTime(rangingTimeSlot_t *timeSlot, DPC_Ranging_Data_t    *rangingData, uint32_t* startLow, uint32_t* startHigh)
 {
     uint32_t    prnStart;
     int32_t     refinedCyclesOffset;
-    prnStart = rangingData->chirpStartTimeLow + rangingData->detectionStats.coarsePeakTimeOffsetCycles;
-    refinedCyclesOffset = rangingData->detectionStats.RefinedPeakTimePicoseconds * DSP_CLOCK_MHZ / 1000000;
+
+    refinedCyclesOffset = rangingData->detectionStats.refinedPeakTimeDSPCycles;
+    prnStart = rangingData->frameStartTimeLow + rangingData->detectionStats.coarsePeakTimeOffsetCycles;
 
     // Check for roll over cases
     // 1. Adding coarsePeakTimeOffsetCycles to chirpStartTimeLow causes roll over
-    if(prnStart < rangingData->chirpStartTimeLow)
+    if(prnStart < rangingData->frameStartTimeLow)
     {
         // Does the refined peak cause it to roll back?
         if(refinedCyclesOffset < 0 && prnStart + refinedCyclesOffset > prnStart)
         {
             // Yes, the refined peak time causes it to roll back
             prnStart += refinedCyclesOffset;
-            nextTimeslot->slotStartTSCL = prnStart;
-            nextTimeslot->slotStartTSCH = rangingData->chirpStartTimeHigh;
+            *startLow = prnStart;
+            *startHigh = rangingData->chirpStartTimeHigh;
         }
         else
         {
             // No, the refined peak time does not cause it to roll back
-            // Yes, the refined peak time causes it to roll back
             prnStart += refinedCyclesOffset;
-            nextTimeslot->slotStartTSCL = prnStart;
-            nextTimeslot->slotStartTSCH = rangingData->chirpStartTimeHigh + 1;
+            *startLow = prnStart;
+            *startHigh = rangingData->chirpStartTimeHigh + 1;
         }
     }
+
     // 2. Adding RefinedPeakTimePicoseconds to prnStart causes roll over
-    else if(refinedCyclesOffset > 0 && prnStart + refinedCyclesOffset > prnStart)
+    else if(refinedCyclesOffset > 0 && prnStart + refinedCyclesOffset < prnStart)
     {
-        // No, the refined peak time does not cause it to roll back
-        // Yes, the refined peak time causes it to roll back
+        // Yes, the refined peak time causes it to roll over
         prnStart += refinedCyclesOffset;
-        nextTimeslot->slotStartTSCL = prnStart;
-        nextTimeslot->slotStartTSCH = rangingData->chirpStartTimeHigh + 1;
+        *startLow = prnStart;
+        *startHigh = rangingData->chirpStartTimeHigh + 1;
     }
+
     // 3. No roll over
     else
     {
         prnStart += refinedCyclesOffset;
-        nextTimeslot->slotStartTSCL = prnStart;
-        nextTimeslot->slotStartTSCH = rangingData->chirpStartTimeHigh;
+        *startLow = prnStart;
+        *startHigh = rangingData->chirpStartTimeHigh;
     }
 }
 
-void updateTimeSlotTime(rangingTimeSlot_t currentTimeslot, rangingTimeSlot_t *nextTimeslot, DPC_Ranging_Data    *rangingData)
+void computeFirstStartTime(rangingTimeSlot_t *timeSlot, DPC_Ranging_Data_t    *rangingData)
 {
-
     // Case 1: RX Synchronization
-    if(currentTimeslot.slotType == SLOT_TYPE_SYNCHRONIZATION_RX)
+    if(timeSlot->slotType == SLOT_TYPE_SYNCHRONIZATION_RX)
     {
-        if(rangingData->detectionStats.wasCodeDetected)
+        computeRxTime(timeSlot, rangingData, &timeSlot->slotStartTSCL, &timeSlot->slotStartTSCH);
+
+        // Adjust for the TX delay
+        // Check for roll over
+        if( timeSlot->slotStartTSCL - timeSlot->transmitDelayAfterSlotStartsDSPCycles >  rangingData->frameStartTimeLow )
         {
-            computeFirstTimeSlot(currentTimeslot, nextTimeslot, rangingData);
+            timeSlot->slotStartTSCH -= 1;
         }
+        timeSlot->slotStartTSCL -= timeSlot->transmitDelayAfterSlotStartsDSPCycles;
     }
 
     // Case 2: TX Synchronization - initialize the time base
-    else if(currentTimeslot.slotType == SLOT_TYPE_SYNCHRONIZATION_TX)
-    {
-        nextTimeslot->slotStartTSCL =     rangingData->frameStartTimeLow;
-        nextTimeslot->slotStartTSCL +=    currentTimeslot.slotDurationDSPCycles;
-        nextTimeslot->slotStartTSCL +=    currentTimeslot.slotGuardAfterDurationDSPCycles;
-        nextTimeslot->slotStartTSCL +=    nextTimeslot->slotGuardBeforeDurationDSPCycles;
-
-        // High register
-        nextTimeslot->slotStartTSCH =     rangingData->frameStartTimeHigh;
-
-        // Check for rollover
-        if( nextTimeslot->slotStartTSCL <  rangingData->frameStartTimeLow)
-        {
-            nextTimeslot->slotStartTSCH += 1;
-        }
-    }
-
-    // Case 3: Already synchronized, just propagate
-    else
+    else if(timeSlot->slotType == SLOT_TYPE_SYNCHRONIZATION_TX)
     {
         // Low register
-        nextTimeslot->slotStartTSCL =     currentTimeslot.slotStartTSCL;
-        nextTimeslot->slotStartTSCL +=    currentTimeslot.slotDurationDSPCycles;
-        nextTimeslot->slotStartTSCL +=    currentTimeslot.slotGuardAfterDurationDSPCycles;
-        nextTimeslot->slotStartTSCL +=    nextTimeslot->slotGuardBeforeDurationDSPCycles;
+        // TX began at the frame start.
+        // However, TX is delayed from the time slot start, so compensate for that.
+        timeSlot->slotStartTSCL  =  rangingData->frameStartTimeLow;
+        timeSlot->slotStartTSCL -=  timeSlot->transmitDelayAfterSlotStartsDSPCycles;
 
         // High register
-        nextTimeslot->slotStartTSCH =     currentTimeslot.slotStartTSCH;
+        timeSlot->slotStartTSCH =     rangingData->frameStartTimeHigh;
 
-        // Check for rollover
-        if( nextTimeslot->slotStartTSCL <  currentTimeslot.slotStartTSCL)
+        // Check for roll over
+        if( timeSlot->slotStartTSCL >  rangingData->frameStartTimeLow )
         {
-            nextTimeslot->slotStartTSCH += 1;
+            timeSlot->slotStartTSCH -= 1;
         }
     }
 }
 
+void computeNextStartTime(rangingTimeSlot_t *currentTimeSlot, rangingTimeSlot_t *nextTimeSlot)
+{
+    // Calculate the start time for the next time slot
+    // Low register
+    nextTimeSlot->slotStartTSCL =     currentTimeSlot->slotStartTSCL;
+    nextTimeSlot->slotStartTSCL +=    currentTimeSlot->slotDurationDSPCycles;
 
+    // High register
+    nextTimeSlot->slotStartTSCH =     currentTimeSlot->slotStartTSCH;
+
+    // Check for rollover
+    if( nextTimeSlot->slotStartTSCL <  currentTimeSlot->slotStartTSCL )
+    {
+        nextTimeSlot->slotStartTSCH += 1;
+    }
+}
+
+void computeTxResponseTime(rangingTimeSlot_t *timeSlot, DPC_Ranging_Data_t    *rangingData)
+{
+    uint32_t    rxStartLow;
+    uint32_t    rxStartHigh;
+
+    ////////////////////////////////////////////////////////////////////////////////////
+    // 1. Find RX time of the Start Code
+    computeRxTime(timeSlot, rangingData, &rxStartLow, &rxStartHigh);
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    // 2. Add the delay duration to it
+    timeSlot->txResponseStartTSCL = rxStartLow + timeSlot->responseTransmitDelayAfterRxDSPCycles;
+    timeSlot->txResponseStartTSCH = rxStartHigh;
+
+    // Check for roll over
+    if(timeSlot->txResponseStartTSCL < rxStartLow)
+    {
+        timeSlot->txResponseStartTSCH += 1;
+    }
+}

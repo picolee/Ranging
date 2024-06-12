@@ -66,10 +66,11 @@
 #include <ti/common/mmwave_error.h>
 #include <ti/drivers/edma/edma.h>
 #include <ti/drivers/osal/DebugP.h>
-#include <ti/control/dpm/dpm.h>
+//#include <ti/control/dpm/dpm.h>
 
 #include <ti/control/mmwavelink/mmwavelink.h>
 #include <inc/ranging_dpc.h>
+#include <inc/rangingdsp_internal.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -139,7 +140,7 @@ typedef struct MemPoolObj_t
  *  The structure is used to hold all the relevant information for the
  *  object detection DPC.
  */
-typedef struct ObjDetObj_t
+typedef struct rangingDataPathObject_t
 {
     /*! @brief DPM Initialization Configuration */
     DPM_InitCfg   dpmInitCfg;
@@ -189,17 +190,19 @@ typedef struct ObjDetObj_t
     bool     isCommonCfgReceived;
 
     /*! @brief DPC's execute API result storage */
-    DPC_Ranging_ExecuteResult executeResult;
+    DPC_Ranging_ExecuteResult       executeResult;
 
     /*! @brief   Stats structure to convey to Application timing and related information. */
-    DPC_Ranging_Stats stats;
+    DPC_Ranging_Stats               stats;
 
     /*! @brief   Structure to convey to Application ranging related information. */
-    DPC_Ranging_Data rangingData;
+    DPC_Ranging_Data_t              rangingData;
 
     /*! @brief   Process call back function configuration */
-    DPC_Ranging_ProcessCallBackCfg processCallBackCfg;
-} ObjDetObj;
+    DPC_Ranging_ProcessCallBackCfg  processCallBackCfg;
+
+    rangingDSPObj_t                 workingVariables;
+} rangingDataPathObject_t;
 
 /**
 @}

@@ -173,7 +173,7 @@ void State_Machine_Thread_Start(UArg arg0, UArg arg1)
         if (newStateInformation == NULL)
         {
               // Call Service_Null_Event to execute generic behavior that occurs whenever we receive an invalid event
-              Service_Null_Message( state_machine_transition_message_id );
+              Service_Null_Message( sm->currentState, state_machine_transition_message_id );
         }
         else
         {

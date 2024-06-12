@@ -36,7 +36,7 @@
             "program": "${workspaceFolder}/unit_testing/gold_code_test.exe",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "${fileDirname}",
+            "cwd": "${workspaceFolder}/unit_testing",
             "environment": [],
             "externalConsole": false,
             "MIMode": "gdb",

@@ -752,6 +752,9 @@ void Ranging_DPC_reportFxn
     uint32_t    arg0,
     uint32_t    arg1
 );
+
+int32_t MMWave_stop_internal (MMWave_Handle mmWaveHandle, int32_t* errCode);
+
 static void Ranging_measurementResultOutput(uint8_t placeholder);
 
 static void Ranging_initTask(UArg arg0, UArg arg1);
@@ -759,7 +762,7 @@ static void Ranging_platformInit(Ranging_platformCfg *config);
 
 /* Mmwave control functions */
 static void Ranging_mmWaveCtrlTask(UArg arg0, UArg arg1);
-static int32_t Ranging_mmWaveCtrlStop (void);
+int32_t Ranging_mmWaveCtrlStop (void);
 static int32_t Ranging_eventCallbackFxn(uint16_t msgId, uint16_t sbId, uint16_t sbLen, uint8_t *payload);
 
 /* external sleep function when in idle (used in .cfg file) */
@@ -868,52 +871,6 @@ static void Ranging_measurementResultOutput(uint8_t placeholder)
         CLI_write (" %.5f", (float) placeholder);
     }
     CLI_write ("\n");
-}
-
-/**************************************************************************
- ******************** Millimeter Wave Demo control path Functions *****************
- **************************************************************************/
-/**
- *  @b Description
- *  @n
- *      The function is used to trigger the Front end to stop generating chirps.
- *
- *  @retval
- *      Not Applicable.
- */
-static int32_t Ranging_mmWaveCtrlStop (void)
-{
-    int32_t                 errCode = 0;
-
-    DebugP_log0("App: Issuing MMWave_stop\n");
-
-    /* Stop the mmWave module: */
-    if (MMWave_stop (gMmwMssMCB.ctrlHandle, &errCode) < 0)
-    {
-        MMWave_ErrorLevel   errorLevel;
-        int16_t             mmWaveErrorCode;
-        int16_t             subsysErrorCode;
-
-        /* Error/Warning: Unable to stop the mmWave module */
-        MMWave_decodeError (errCode, &errorLevel, &mmWaveErrorCode, &subsysErrorCode);
-        if (errorLevel == MMWave_ErrorLevel_ERROR)
-        {
-            /* Error: Display the error message: */
-            System_printf ("Error: mmWave Stop failed [Error code: %d Subsystem: %d]\n",
-                            mmWaveErrorCode, subsysErrorCode);
-
-            /* Not expected */
-            Ranging_debugAssert(0);
-        }
-        else
-        {
-            /* Warning: This is treated as a successful stop. */
-            System_printf ("mmWave Stop error ignored [Error code: %d Subsystem: %d]\n",
-                            mmWaveErrorCode, subsysErrorCode);
-        }
-    }
-
-    return errCode;
 }
 
 /**
@@ -1043,8 +1000,6 @@ static int32_t Ranging_eventCallbackFxn(uint16_t msgId, uint16_t sbId, uint16_t 
                 {
                     gMmwMssMCB.stats.sensorStopped++;
                     DebugP_log0("App: BSS stop (frame end) received\n");
-
-                    Ranging_dataPathStop();
                     break;
                 }
                 default:
@@ -1087,31 +1042,6 @@ static int32_t Ranging_eventCallbackFxn(uint16_t msgId, uint16_t sbId, uint16_t 
 
 uint32_t gts[100];
 uint32_t gtsIdx = 0;
-
-/**
- *  @b Description
- *  @n
- *      DPM Execution Task which executes the DPM Instance which manages the
- *      HL Profiles executing on the MSS.
- *
- *  @retval
- *      Not Applicable.
- */
-static void mmwDemo_mssDPMTask(UArg arg0, UArg arg1)
-{
-    int32_t     errCode;
-    DPM_Buffer  result;
-
-    while (1)
-    {
-        /* Execute the DPM module: */
-        errCode = DPM_execute (gMmwMssMCB.objDetDpmHandle, &result);
-        if (errCode < 0)
-        {
-            System_printf ("Error: DPM execution failed [Error code %d]\n", errCode);
-        }
-    }
-}
 
 /**
  *  @b Description
@@ -1391,13 +1321,14 @@ int32_t Ranging_startSensor(void)
  */
 static void Ranging_sensorStopEpilog(void)
 {
+    /*
     Task_Stat stat;
     Hwi_StackInfo stackInfo;
     Bool stackOverflow;
 
-    /* Print task statistics, note data path has completely stopped due to
-     * end of frame, so we can do non-real time processing like prints on
-     * console */
+    // Print task statistics, note data path has completely stopped due to
+    // end of frame, so we can do non-real time processing like prints on
+    // console //
     System_printf("Data Path Stopped (last frame processing done)\n");
 
     System_printf("============================================\n");
@@ -1431,6 +1362,7 @@ static void Ranging_sensorStopEpilog(void)
                       stackInfo.hwiStackSize, stackInfo.hwiStackPeak,
                       stackInfo.hwiStackSize - stackInfo.hwiStackPeak);
     }
+    */
 }
 
 
@@ -1442,15 +1374,9 @@ static void Ranging_sensorStopEpilog(void)
  *
  *  @retval  None
  */
-void Ranging_stopSensor(void)
+void Ranging_stopLVDS(void)
 {
     int32_t errCode;
-
-    /* Stop sensor RF , data path will be stopped after RF stop is completed */
-    Ranging_mmWaveCtrlStop();
-
-    /* Wait until DPM_stop is completed */
-    Semaphore_pend(gMmwMssMCB.DPMstopSemHandle, BIOS_WAIT_FOREVER);
 
     /* Delete any active streaming session */
     if(gMmwMssMCB.lvdsStream.hwSessionHandle != NULL)
@@ -1498,8 +1424,19 @@ void Ranging_stopSensor(void)
     gMmwMssMCB.sensorStopCount++;
 
     /* print for user */
-    System_printf("Sensor has been stopped: startCount: %d stopCount %d\n",
-                  gMmwMssMCB.sensorStartCount,gMmwMssMCB.sensorStopCount);
+//    System_printf("Sensor has been stopped: startCount: %d stopCount %d\n",
+//                  gMmwMssMCB.sensorStartCount,gMmwMssMCB.sensorStopCount);
+}
+
+void Ranging_stopSensor(void)
+{
+    if(Ranging_mmWaveCtrlStop())
+    {
+        System_printf("Error stopping sensor.\n");
+        Ranging_debugAssert(0);
+    }
+
+    Ranging_stopLVDS();
 }
 
 /**************************************************************************
@@ -1511,7 +1448,7 @@ void Ranging_stopSensor(void)
  *  @n
  *      Platform specific hardware initialization.
  *
- *  @param[in]  config     Platform initialization configuraiton
+ *  @param[in]  config     Platform initialization configuration
  *
  *  @retval
  *      Not Applicable.
@@ -1795,9 +1732,10 @@ void Ranging_mssMmwaveStartCallbackFxn(MMWave_CalibrationCfg* ptrCalibrationCfg)
 
     // Global state variable - eventually we should only use the state machine
     gMmwMssMCB.sensorState = Ranging_SensorState_STARTED;
+    gMmwMssMCB.sensorStartCount++;
 
     // Update the state machine
-    Send_Sensor_Started_Message( );
+    //Send_Sensor_Started_Message( );
     return;
 }
 
@@ -1812,8 +1750,22 @@ void Ranging_mssMmwaveStartCallbackFxn(MMWave_CalibrationCfg* ptrCalibrationCfg)
  */
 void Ranging_mssMmwaveStopCallbackFxn(void)
 {
-    // The DSS should not stop the sensor
-    Ranging_debugAssert (0);
+    char output_data[20];
+
+    // The DSS stops the sensor after the last chirp of a frame is received
+    Ranging_stopLVDS();
+    gMmwMssMCB.sensorState = Ranging_SensorState_STOPPED;
+    gMmwMssMCB.sensorStopCount++;
+
+    snprintf(output_data,
+             sizeof(output_data),
+             "Sensor Stopped.\n");
+
+    UART_writePolling (gMmwMssMCB.loggingUartHandle,
+                       (uint8_t*)&output_data,
+                       strlen(output_data));
+
+    CLI_write( "Sensor Stopped.\n" );
     return;
 }
 
@@ -1834,8 +1786,6 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
     UART_Params         uartParams;
     Task_Params         taskParams;
     Semaphore_Params    semParams;
-    DPM_InitCfg         dpmInitCfg;
-    DPC_Ranging_InitParams objDetInitParams;
     int32_t             i;
 
     /* Debug Message: */
@@ -1867,8 +1817,9 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
     initializeMailboxWithRemote(IPC_MAILBOX_TASK_PRIORITY,
                                 MAILBOX_TYPE_MSS,
                                 MAILBOX_TYPE_DSS,
-                                &gMmwMssMCB.taskHandles.dssMailboxTask,
-                                &ranging_mssMboxReadTask);
+                                &gMmwMssMCB.taskHandles.dssMailboxReadTask,
+                                &ranging_mssMboxReadTask,
+                                &gMmwMssMCB.taskHandles.dssMailboxWriteTask);
 
     /* initialize cq configs to invalid profile index to be able to detect
      * unconfigured state of these when monitors for them are enabled.
@@ -1921,9 +1872,6 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
      * from DPM registered report function (which will execute in the DPM execute task context). */
     Semaphore_Params_init(&semParams);
     semParams.mode                  = Semaphore_Mode_BINARY;
-    gMmwMssMCB.DPMstartSemHandle    = Semaphore_create(0, &semParams, NULL);
-    gMmwMssMCB.DPMstopSemHandle     = Semaphore_create(0, &semParams, NULL);
-    gMmwMssMCB.DPMioctlSemHandle    = Semaphore_create(0, &semParams, NULL);
     gMmwMssMCB.dssMboxSemHandle     = Semaphore_create(0, &semParams, NULL);
 
     /* Open EDMA driver */
@@ -2008,7 +1956,8 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
     /*****************************************************************************
      * Initialization of the DPM Module:
      *****************************************************************************/
-    /* Setup the configuration: */
+    /*
+    // Setup the configuration: //
     memset ((void *)&dpmInitCfg, 0, sizeof(DPM_InitCfg));
     dpmInitCfg.socHandle        = gMmwMssMCB.socHandle;
     dpmInitCfg.ptrProcChainCfg  = NULL;
@@ -2018,7 +1967,7 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
     dpmInitCfg.arg              = &objDetInitParams;
     dpmInitCfg.argSize          = sizeof(DPC_Ranging_InitParams);
 
-    /* Initialize the DPM Module: */
+    // Initialize the DPM Module: //
     gMmwMssMCB.objDetDpmHandle = DPM_init (&dpmInitCfg, &errCode);
     if (gMmwMssMCB.objDetDpmHandle == NULL)
     {
@@ -2027,35 +1976,36 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
         return;
     }
 
-    /* Synchronization: This will synchronize the execution of the datapath module
-     * between the domains. This is a prerequiste and always needs to be invoked. */
+    // Synchronization: This will synchronize the execution of the datapath module
+    // between the domains. This is a prerequiste and always needs to be invoked. //
     while (1)
     {
         int32_t syncStatus;
 
-        /* Get the synchronization status: */
+        // Get the synchronization status: //
         syncStatus = DPM_synch (gMmwMssMCB.objDetDpmHandle, &errCode);
         if (syncStatus < 0)
         {
-            /* Error: Unable to synchronize the framework */
+            // Error: Unable to synchronize the framework //
             System_printf ("Error: DPM Synchronization failed [Error code %d]\n", errCode);
             Ranging_debugAssert (0);
             return;
         }
         if (syncStatus == 1)
         {
-            /* Synchronization acheived: */
+            // Synchronization acheived: //
             break;
         }
-        /* Sleep and poll again: */
+        // Sleep and poll again: //
         Task_sleep(1);
     }
 
-    /* Launch the DPM Task */
+    // Launch the DPM Task //
     Task_Params_init(&taskParams);
     taskParams.priority  = MMWDEMO_DPC_OBJDET_DPM_TASK_PRIORITY;
     taskParams.stackSize = 4*1024;
     gMmwMssMCB.taskHandles.objDetDpmTask = Task_create(mmwDemo_mssDPMTask, &taskParams, NULL);
+    */
 
     /* Calibration save/restore initialization */
     if(Ranging_calibInit()<0)

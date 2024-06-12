@@ -24,6 +24,15 @@ int16_t sample_gold_code_with_idle_time(
     double chip_duration, 
     double zeros_duration);
 
+int16_t sample_gold_code_with_idle_time_preallocated_memory(
+    gold_code_struct_t *sampled_gold_code,
+    gold_code_struct_t *code,
+    double sample_rate,
+    double chip_duration,
+    double zeros_duration,
+    int16_t *preallocated_memory,
+    uint32_t preallocated_size);
+
 int16_t pad_then_sample_gold_code_with_idle_time( 
     gold_code_struct_t* padded_sampled_code,
     gold_code_struct_t* unpadded_code, 

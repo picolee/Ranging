@@ -31,10 +31,5 @@
 			<type>2</type>
 			<locationURI>WORKSPACE_LOC/shared</locationURI>
 		</link>
-		<link>
-			<name>src/gold_code.c</name>
-			<type>1</type>
-			<locationURI>WORKSPACE_LOC/Ranging_3_6843_isk_dss/src/gold_code.c</locationURI>
-		</link>
 	</linkedResources>
 </projectDescription>

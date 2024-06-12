@@ -9,6 +9,7 @@
 #define SHARED_RANGING_TIMESLOT_H_
 
 #include <stdint.h>
+#include <inc/ranging_dpc.h>
 
 typedef enum rangingTimeSlotType
 {
@@ -27,21 +28,22 @@ extern const char* slotTypeNames[NUMBER_OF_SLOT_TYPES];
 
 typedef struct rangingTimeSlot
 {
-    // Start times in units of the DSP high precision timer, low and high register
+    // Time slot start time in units of the DSP high precision timer, low and high register
     uint32_t                slotStartTSCL;
     uint32_t                slotStartTSCH;
 
     // Slot duration in DSP high precision timer cycles
     uint32_t                slotDurationDSPCycles;
 
-    // The amount of DSP cycles that we want to start RX early
-    uint32_t                slotRxStartEarlyByDSPCycles;
+    // The number of cycles the transmitter delays after the start of the cycle
+    uint32_t                transmitDelayAfterSlotStartsDSPCycles;
 
-    // This slot guard is unused buffer time before the slot
-    uint32_t                slotGuardBeforeDurationDSPCycles;
+    // TX start times in units of the DSP high precision timer, low and high register
+    uint32_t                txResponseStartTSCL;
+    uint32_t                txResponseStartTSCH;
 
-    // This slot guard is unused buffer time after the slot
-    uint32_t                slotGuardAfterDurationDSPCycles;
+    // The number of cycles the response transmit delays after the start of the cycle
+    uint32_t                responseTransmitDelayAfterRxDSPCycles;
 
     uint8_t                 goldCodeNumBits;            // 2^N + 1 possible PRNs, each of length 2^N-1
     float                   frequencyInGHz;
@@ -60,19 +62,21 @@ int32_t initializeTimeSlot(
     uint32_t slotStartTSCL,
     uint32_t slotStartTSCH,
     uint32_t slotDurationDSPCycles,
-    uint32_t slotRxStartEarlyByDSPCycles,
-    uint32_t slotGuardBeforeDurationDSPCycles,
-    uint32_t slotGuardAfterDurationDSPCycles,
-    uint16_t frequencyInGHz,
-    float prn,
-    uint8_t goldCodeNumBits
+    uint32_t transmitDelayAfterSlotStartsDSPCycles,
+    uint32_t responseTransmitDelayAfterRxDSPCycles,
+    float    frequencyInGHz,
+    uint16_t prn,
+    uint8_t  goldCodeNumBits
 );
 
 int32_t initializeDefaultTimeSlot(rangingTimeSlot_t *slot,
                                   rangingTimeSlotType_t slotType,
-                                  uint16_t frequencyInGHz,
-                                  float prn,
+                                  float frequencyInGHz,
+                                  uint16_t prn,
                                   uint8_t goldCodeNumBits);
 
+void computeFirstStartTime( rangingTimeSlot_t *timeSlot,        DPC_Ranging_Data_t  *rangingData );
+void computeNextStartTime ( rangingTimeSlot_t *currentTimeSlot, rangingTimeSlot_t   *nextTimeSlot );
+void computeTxResponseTime( rangingTimeSlot_t *timeSlot,        DPC_Ranging_Data_t  *rangingData );
 
 #endif /* SHARED_RANGING_TIMESLOT_H_ */

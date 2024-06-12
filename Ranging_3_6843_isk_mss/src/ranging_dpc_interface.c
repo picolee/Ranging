@@ -21,6 +21,7 @@
 #include <inc/ranging_dpc.h>
 #include <inc/state_machine.h>
 #include <inc/ranging_dpc_interface.h>
+#include <shared/ranging_rfConfig.h>
 
 
 extern Ranging_MSS_MCB    gMmwMssMCB;
@@ -84,16 +85,16 @@ int32_t Ranging_dataPathConfig (uint16_t rxPrn)
     DebugP_log0("App: Issuing Pre-start Common Config IOCTL to DSP\n");
 
     /* DPC pre-start common config */
-    errCode = Ranging_DPM_ioctl_blocking (gMmwMssMCB.objDetDpmHandle,
-                         DPC_RANGING_IOCTL__STATIC_PRE_START_COMMON_CFG,
-                         &objDetCommonCfg->preStartCommonCfg,
-                         sizeof (DPC_Ranging_PreStartCommonCfg));
-
-    if (errCode < 0)
-    {
-        System_printf ("Error: Unable to send DPC_OBJDET_IOCTL__STATIC_PRE_START_COMMON_CFG [Error:%d]\n", errCode);
-        goto exit;
-    }
+//    errCode = Ranging_DPM_ioctl_blocking (gMmwMssMCB.objDetDpmHandle,
+//                         DPC_RANGING_IOCTL__STATIC_PRE_START_COMMON_CFG,
+//                         &objDetCommonCfg->preStartCommonCfg,
+//                         sizeof (DPC_Ranging_PreStartCommonCfg));
+//
+//    if (errCode < 0)
+//    {
+//        System_printf ("Error: Unable to send DPC_OBJDET_IOCTL__STATIC_PRE_START_COMMON_CFG [Error:%d]\n", errCode);
+//        goto exit;
+//    }
 
     /* Reason for reverse loop is that when sensor is started, the first sub-frame
      * will be active and the ADC configuration needs to be done for that sub-frame
@@ -130,7 +131,6 @@ int32_t Ranging_dataPathConfig (uint16_t rxPrn)
         subFrameCfg->adcBufChanDataSize = RFparserOutParams.adcBufChanDataSize;
         subFrameCfg->numAdcSamples = RFparserOutParams.numAdcSamples;
         subFrameCfg->numChirpsPerSubFrame = RFparserOutParams.numChirpsPerFrame;
-        subFrameCfg->numVirtualAntennas = RFparserOutParams.numVirtualAntennas;
 
         errCode = Ranging_ADCBufConfig(gMmwMssMCB.adcBufHandle,
                                  gMmwMssMCB.cfg.openCfg.chCfg.rxChannelEn,
@@ -171,28 +171,16 @@ int32_t Ranging_dataPathConfig (uint16_t rxPrn)
             objDetPreStartDspCfg.staticCfg.ADCBufData.dataProperty.interleave               = DPIF_RXCHAN_NON_INTERLEAVE_MODE;
             objDetPreStartDspCfg.staticCfg.ADCBufData.dataProperty.numAdcSamples            = RFparserOutParams.numAdcSamples;
             objDetPreStartDspCfg.staticCfg.ADCBufData.dataProperty.numChirpsPerChirpEvent   = RFparserOutParams.numChirpsPerChirpEvent;
-            objDetPreStartDspCfg.staticCfg.ADCBufData.dataProperty.numRxAntennas            = RFparserOutParams.numRxAntennas;
-            objDetPreStartDspCfg.staticCfg.ADCBufData.dataSize                              = RFparserOutParams.numRxAntennas * RFparserOutParams.numAdcSamples * sizeof(cmplx16ImRe_t);
+            objDetPreStartDspCfg.staticCfg.ADCBufData.dataProperty.numRxAntennas            = RX_NUM_ANTENNAS;
+            objDetPreStartDspCfg.staticCfg.ADCBufData.dataSize                              = RFparserOutParams.numAdcSamples * sizeof(cmplx16ImRe_t);
             objDetPreStartDspCfg.staticCfg.numChirpsPerFrame                                = RFparserOutParams.numChirpsPerFrame;
-            objDetPreStartDspCfg.staticCfg.numChirpsPerFrame    = RFparserOutParams.numChirpsPerFrame;
-            objDetPreStartDspCfg.staticCfg.numTxAntennas        = RFparserOutParams.numTxAntennas;
-            objDetPreStartDspCfg.staticCfg.numVirtualAntAzim    = RFparserOutParams.numVirtualAntAzim;
-            objDetPreStartDspCfg.staticCfg.numVirtualAntElev    = RFparserOutParams.numVirtualAntElev;
-            objDetPreStartDspCfg.staticCfg.numVirtualAntennas   = RFparserOutParams.numVirtualAntennas;
             objDetPreStartDspCfg.staticCfg.isBpmEnabled         = subFrameCfg->bpmCfg.isEnabled;
             objDetPreStartDspCfg.staticCfg.centerFreq           = RFparserOutParams.centerFreq;
-            objDetPreStartDspCfg.staticCfg.adcSampleRate        = RFparserOutParams.adcSampleRate;
             objDetPreStartDspCfg.staticCfg.rxPrn                = rxPrn;
 
-            for (idx = 0; idx < RFparserOutParams.numRxAntennas; idx++)
-            {
-                objDetPreStartDspCfg.staticCfg.rxAntOrder[idx] = RFparserOutParams.rxAntOrder[idx];
-            }
+            objDetPreStartDspCfg.staticCfg.rxAntOrder[0] = RFparserOutParams.rxAntOrder[0];
 
-            for (idx = 0; idx < RFparserOutParams.numTxAntennas; idx++)
-            {
-                objDetPreStartDspCfg.staticCfg.txAntOrder[idx] = RFparserOutParams.txAntOrder[idx];
-            }
+            objDetPreStartDspCfg.staticCfg.txAntOrder[0] = RFparserOutParams.txAntOrder[0];
 
             // DPC running on remote core, address need to be converted
             objDetPreStartDspCfg.staticCfg.ADCBufData.data = (void *) SOC_translateAddress((uint32_t)objDetPreStartDspCfg.staticCfg.ADCBufData.data,
@@ -201,17 +189,17 @@ int32_t Ranging_dataPathConfig (uint16_t rxPrn)
             DebugP_assert ((uint32_t)objDetPreStartDspCfg.staticCfg.ADCBufData.data != SOC_TRANSLATEADDR_INVALID);
 
             /* send pre-start config */
-            errCode = Ranging_DPM_ioctl_blocking (gMmwMssMCB.objDetDpmHandle,
-                                 DPC_RANGING_IOCTL__STATIC_PRE_START_CFG,
-                                 &objDetPreStartDspCfg,
-                                 sizeof (DPC_Ranging_PreStartCfg));
-            DebugP_log0("App: DPC_OBJDET_IOCTL__STATIC_PRE_START_CFG is processed \n");
-
-            if (errCode < 0)
-            {
-                System_printf ("Error: Unable to send DPC_OBJDET_IOCTL__STATIC_PRE_START_CFG [Error:%d]\n", errCode);
-                goto exit;
-            }
+//            errCode = Ranging_DPM_ioctl_blocking (gMmwMssMCB.objDetDpmHandle,
+//                                 DPC_RANGING_IOCTL__STATIC_PRE_START_CFG,
+//                                 &objDetPreStartDspCfg,
+//                                 sizeof (DPC_Ranging_PreStartCfg));
+//            DebugP_log0("App: DPC_OBJDET_IOCTL__STATIC_PRE_START_CFG is processed \n");
+//
+//            if (errCode < 0)
+//            {
+//                System_printf ("Error: Unable to send DPC_OBJDET_IOCTL__STATIC_PRE_START_CFG [Error:%d]\n", errCode);
+//                goto exit;
+//            }
         }
     }
 exit:
@@ -256,17 +244,19 @@ void Ranging_dataPathStart (void)
     {
         Ranging_configLVDSHwData(0);
     }
+    /*
 
-    /* Start the DPM Profile: */
+    // Start the DPM Profile: //
     if ((retVal = DPM_start(gMmwMssMCB.objDetDpmHandle)) < 0)
     {
-        /* Error: Unable to start the profile */
+        // Error: Unable to start the profile //
         System_printf("Error: Unable to start the DPM [Error: %d]\n", retVal);
         Ranging_debugAssert(0);
     }
 
-    /* Wait until start completed */
+    // Wait until start completed //
     Semaphore_pend(gMmwMssMCB.DPMstartSemHandle, BIOS_WAIT_FOREVER);
+    */
 
     DebugP_log0("App: DPM_start Done (post Semaphore_pend on reportFxn reporting start)\n");
 }
@@ -582,7 +572,6 @@ void Ranging_DPC_reportFxn
                  */
                 case DPC_RANGING_IOCTL__STATIC_PRE_START_COMMON_CFG:
                 case DPC_RANGING_IOCTL__STATIC_PRE_START_CFG:
-                    Semaphore_post(gMmwMssMCB.DPMioctlSemHandle);
                     break;
                 default:
                     break;
@@ -597,7 +586,6 @@ void Ranging_DPC_reportFxn
              *****************************************************************/
             DebugP_log0("App: DPM Report DPC Started\n");
             gMmwMssMCB.stats.dpmStartEvents++;
-            Semaphore_post(gMmwMssMCB.DPMstartSemHandle);
             break;
         }
         case DPM_Report_NOTIFY_DPC_RESULT:
@@ -636,9 +624,6 @@ void Ranging_DPC_reportFxn
              *****************************************************************/
             DebugP_log0("App: DPM Report DPC Stopped\n");
             gMmwMssMCB.stats.dpmStopEvents++;
-            /* every sensor stop should cause 2 DPM stop events due to distributed domain
-               Wait for both the events before proceeding with remaining steps */
-            Semaphore_post(gMmwMssMCB.DPMstopSemHandle);
             break;
         }
         case DPM_Report_DPC_INFO:
@@ -701,7 +686,7 @@ static void Ranging_transmitProcessedOutput
     int32_t errCode;
     int16_t index;
     DPC_Ranging_Stats   *stats;
-    DPC_Ranging_Data    *rangingData;
+    DPC_Ranging_Data_t  *rangingData;
     Ranging_PRN_Detection_Stats* detectionStats;
     char output_data[20];
     char output_float[40];
@@ -733,14 +718,14 @@ static void Ranging_transmitProcessedOutput
                                                      &errCode);
         DebugP_assert ((uint32_t) result->radarCube.data != SOC_TRANSLATEADDR_INVALID);
 
-        rangingData = (DPC_Ranging_Data *) SOC_translateAddress((uint32_t) result->rangingData,
+        rangingData = (DPC_Ranging_Data_t *) SOC_translateAddress((uint32_t) result->rangingData,
                                                      SOC_TranslateAddr_Dir_FROM_OTHER_CPU,
                                                      &errCode);
         DebugP_assert ((uint32_t) rangingData != SOC_TRANSLATEADDR_INVALID);
 
         detectionStats = &rangingData->detectionStats;
 
-        memcpy(&gMmwMssMCB.rangingResult.detectionStats, &rangingData->detectionStats, sizeof(Ranging_PRN_Detection_Stats));
+        memcpy(&gMmwMssMCB.rangingData, &rangingData, sizeof(DPC_Ranging_Data_t));
 
         // Update the state machine
         Send_Results_Available_Message();
@@ -749,8 +734,8 @@ static void Ranging_transmitProcessedOutput
     // Data is arranged as:
 
     // ADC Data In - pHwRes->radarCube.data
-    // rangingObj->radarCubebuf                = (cmplx16ImRe_t *)pHwRes->radarCube.data;
-    // rangingObj->fftOfMagnitude              = (cmplx16ImRe_t *)rangingObj->radarCubebuf                  + pStaticCfg->ADCBufData.dataSize;
+    // rangingObj->ADCDataL3                    = (cmplx16ImRe_t *)pHwRes->radarCube.data;
+    // rangingObj->fftOfMagnitude              = (cmplx16ImRe_t *)rangingObj->ADCDataL3                     + pStaticCfg->ADCBufData.dataSize;
     // rangingObj->magnitudeData               = (cmplx16ImRe_t *)rangingObj->fftOfMagnitude                + pStaticCfg->ADCBufData.dataSize;
     // rangingObj->vectorMultiplyOfFFtedData   = (cmplx16ImRe_t *)rangingObj->magnitudeData                 + pStaticCfg->ADCBufData.dataSize;
     // rangingObj->iFftData                    = (cmplx16ImRe_t *)rangingObj->vectorMultiplyOfFFtedData     + pStaticCfg->ADCBufData.dataSize;
@@ -956,7 +941,7 @@ static void Ranging_transmitProcessedOutput
         snprintf(output_data,
                  sizeof(output_data),
                  "Refined: %d\r\n",
-                 detectionStats->RefinedPeakTimePicoseconds);
+                 detectionStats->refinedPeakTimePicoseconds);
 
         UART_writePolling (uartHandle,
                            (uint8_t*)&output_data,
@@ -1286,7 +1271,6 @@ int32_t Ranging_DPM_ioctl_blocking
     if(retVal == 0)
     {
         /* Wait until ioctl completed */
-        Semaphore_pend(gMmwMssMCB.DPMioctlSemHandle, BIOS_WAIT_FOREVER);
     }
 
     return(retVal);

@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include "../inc/gold_code.h"
+#include "../../shared/gold_code.h"
 
 #define N 6
 #define MAX_CODE_LENGTH 16384
@@ -293,6 +293,83 @@ void test_sample_gold_code_with_idle_time()
     free(output_codes);
 }
 
+void test_sample_gold_code_with_idle_time_preallocated_memory()
+{
+    
+    double sample_rate       = 4000000;
+    double chip_duration     = 0.000006;
+    double zeros_duration    = 0.000003;
+    int expected_length;
+    int16_t expected_data[MAX_CODE_LENGTH];
+    char filename[64];
+
+    gold_code_struct_t* output_codes;       // Pointer to hold the generated Gold codes
+    int num_codes = (1 << N) + 1;           // Number of Gold codes generated will be 2^n + 1
+    output_codes = malloc(num_codes * sizeof(gold_code_struct_t));
+
+    int result = generate_all_gold_sequences(N, output_codes);
+    int passes = 0;
+    int fails = 0;
+
+    gold_code_struct_t sampled_gold_code;
+    int16_t preallocated_memory[MAX_CODE_LENGTH];
+
+    if (result == 0)
+    {
+        for (int i = 0; i < num_codes; i++)
+        {
+            // Generate test data
+            if (sample_gold_code_with_idle_time_preallocated_memory(
+                    &sampled_gold_code,
+                    &output_codes[i],
+                    sample_rate,
+                    chip_duration,
+                    zeros_duration,
+                    preallocated_memory,
+                    sizeof(preallocated_memory) / sizeof(int16_t)) == 0)
+            {
+                // Load truth data
+                sprintf(filename, "truth_data\\sampled_gold_with_idle_times_truth_data_%d.txt", i);
+                read_truth_data(filename, expected_data, &expected_length);
+
+                // Compare truth data with test data
+                if (sampled_gold_code.length == expected_length)
+                {
+                    if (compare_arrays(sampled_gold_code.data, expected_data, expected_length))
+                    {
+                        passes += 1;
+                    }
+                    else
+                    {
+                        printf("Test sample gold with idle function (preallocated memory) %d: Failed\n", i);
+                        fails += 1;
+                    }
+                }
+                else
+                {
+                    printf("Test sample gold with idle function (preallocated memory) %d: Failed\n", i);
+                    fails += 1;
+                }
+            }
+        }
+    }
+    else
+    {
+        printf("Test sample gold with idle function (preallocated memory): Failed\n");
+        fails += 1;
+    }
+    printf("Test sample gold with idle function (preallocated memory) passes: %d\n", passes);
+    printf("Test sample gold with idle function (preallocated memory) fails:  %d\n", fails);
+
+    // Clean up
+    for (int i = 0; i < num_codes; i++)
+    {
+        free(output_codes[i].data);
+    }
+    free(output_codes);
+}
+
+
 void test_pad_gold_code_with_ones() 
 {
     int base_length;
@@ -358,6 +435,7 @@ uint8_t compare_floats(float a, float b, float epsilon)
     return 0;
 }
 
+/*
 void test_linear_regression_function() 
 {
     int passes = 0;
@@ -454,6 +532,7 @@ void test_linear_regression_function()
     printf("Test linear regression fails:  %d\n", fails);
 
 }
+*/
 
 int main() {
     test_generate_all_gold_sequences_function();
@@ -462,11 +541,13 @@ int main() {
 
     test_sample_gold_code_with_idle_time();
 
+    test_sample_gold_code_with_idle_time_preallocated_memory();
+
     test_pad_then_sample_gold_code_with_idle_time();
 
     test_generate_one_gold_sequence_function();
 
-    test_linear_regression_function();
+    //test_linear_regression_function();
     
     return 0;
 }

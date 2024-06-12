@@ -165,26 +165,11 @@ typedef struct Ranging_RFParserOutParams_t
     /*! @brief  Number of ADC samples */
     uint16_t    numAdcSamples;
 
-    /*! @brief  Number of transmit antennas */
-    uint8_t     numRxAntennas;
-
     /*! @brief  Rx Antenna order */
     uint8_t     rxAntOrder[SYS_COMMON_NUM_RX_CHANNEL];
 
     /*! @brief  Tx Antenna order */
     uint8_t     txAntOrder[SYS_COMMON_NUM_TX_ANTENNAS];
-
-    /*! @brief  Number of transmit antennas */
-    uint8_t     numTxAntennas;
-
-    /*! @brief  Number of virtual antennas */
-    uint8_t     numVirtualAntennas;
-
-    /*! @brief  Number of virtual azimuth antennas */
-    uint8_t     numVirtualAntAzim;
-
-    /*! @brief  Number of virtual elevation antennas */
-    uint8_t     numVirtualAntElev;
 
     /*! @brief  Number of chirps per frame */
     uint16_t    numChirpsPerFrame;

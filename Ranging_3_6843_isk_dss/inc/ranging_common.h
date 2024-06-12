@@ -166,13 +166,14 @@ extern "C" {
 
      /*! @brief  plus/minus correction applied to the coarse peak time
       *          Units are picoseconds  */
-     int32_t     RefinedPeakTimePicoseconds;
+     int32_t     refinedPeakTimePicoseconds;
+
+     /*! @brief  plus/minus correction applied to the coarse peak time
+      *          Units are DSP cycles  */
+     int32_t     refinedPeakTimeDSPCycles;
 
      /*! @brief  boolean, true if code was detected */
      uint8_t     wasCodeDetected;
-
-     /*! @brief  boolean, true if TX frame completed */
-     uint8_t     isTxComplete;
 
      /*! @brief  PRN of the code */
      uint16_t    rxPrn;
@@ -206,9 +207,6 @@ typedef struct DPU_Ranging_stats_t
 
     /*! @brief processing time to compute the magnitude of the ifft*/
     uint32_t    magIfftTime;
-
-    /*! @brief total wait time for EDMA data transfer during all chirps in a frame*/
-    uint32_t    waitTime;
 
     // Contains early, prompt, late, offsets, PRN, etc
     Ranging_PRN_Detection_Stats detectionStats;
