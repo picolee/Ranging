@@ -26,11 +26,17 @@ typedef enum rangingTimeSlotType
 // Slot type names table
 extern const char* slotTypeNames[NUMBER_OF_SLOT_TYPES];
 
+typedef struct
+{
+    uint32_t timeLow;
+    uint32_t timeHigh;
+
+}timeLowHighRegisters_t;
+
 typedef struct rangingTimeSlot
 {
     // Time slot start time in units of the DSP high precision timer, low and high register
-    uint32_t                slotStartTSCL;
-    uint32_t                slotStartTSCH;
+    timeLowHighRegisters_t  slotStart;
 
     // Slot duration in DSP high precision timer cycles
     uint32_t                slotDurationDSPCycles;
@@ -39,11 +45,13 @@ typedef struct rangingTimeSlot
     uint32_t                transmitDelayAfterSlotStartsDSPCycles;
 
     // TX start times in units of the DSP high precision timer, low and high register
-    uint32_t                txResponseStartTSCL;
-    uint32_t                txResponseStartTSCH;
+    timeLowHighRegisters_t  txResponseStart;
 
     // The number of cycles the response transmit delays after the start of the cycle
     uint32_t                responseTransmitDelayAfterRxDSPCycles;
+
+    // The number of times we have entered this timeslot
+    uint32_t                timesEntered;
 
     uint8_t                 goldCodeNumBits;            // 2^N + 1 possible PRNs, each of length 2^N-1
     float                   frequencyInGHz;

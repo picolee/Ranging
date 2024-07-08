@@ -47,6 +47,7 @@ void Define_State_Machine( void )
     message_to_string_table[SM_MSG_COMPLETED]           = "MSG_COMPLETED";
     message_to_string_table[SM_MSG_DSS_REPORTS_FAILURE] = "MSG_DSS_FAILURE";
     message_to_string_table[SM_MSG_UPDATE_TIMESLOT_LIST]= "MSG_UPDATE_SLOTS";
+    State_Machine.message_to_string                     = &message_to_string_table[0];
 
     for(index = 0; index < STATE_TOTAL_COUNT; index++)
     {
@@ -63,6 +64,7 @@ void Define_State_Machine( void )
     state_to_string_table[STATE_COMPLETED]          = "STATE_COMPLETED";
     state_to_string_table[STATE_FAILED]             = "STATE_FAILED";
     state_to_string_table[STATE_CANCELLED]          = "STATE_CANCELLED";
+    State_Machine.state_to_string                   = &state_to_string_table[0];
 
     // Initialization
     State_Machine_States[STATE_INIT].stateMachine                             = &State_Machine;
@@ -118,14 +120,14 @@ void Define_State_Machine( void )
 
     // EXECUTE
     State_Machine_States[STATE_EXECUTE_CFG].stateMachine                                    = &State_Machine;
-    State_Machine_States[STATE_EXECUTE_CFG].stateExecutionFunction                          = SM_Func_Execute_Cfg;
+    State_Machine_States[STATE_EXECUTE_CFG].stateExecutionFunction                          = SM_Func_Start_Execute;
     State_Machine_States[STATE_EXECUTE_CFG].stateNumber                                     = STATE_EXECUTE_CFG;
     State_Machine_States[STATE_EXECUTE_CFG].stateTransitionTable[SM_MSG_INIT]               = &State_Machine_States[STATE_INIT];
     State_Machine_States[STATE_EXECUTE_CFG].stateTransitionTable[SM_MSG_STANDBY]            = &State_Machine_States[STATE_STANDBY];
     State_Machine_States[STATE_EXECUTE_CFG].stateTransitionTable[SM_MSG_FAILED]             = &State_Machine_States[STATE_FAILED];
     State_Machine_States[STATE_EXECUTE_CFG].stateTransitionTable[SM_MSG_CANCELLED]          = &State_Machine_States[STATE_CANCELLED];
     State_Machine_States[STATE_EXECUTE_CFG].stateTransitionTable[SM_MSG_SENSOR_STARTED]     = &State_Machine_States[STATE_EXECUTING];
-    State_Machine_States[STATE_EXECUTE_CFG].stateTransitionTable[SM_MSG_TIMESLOT_STARTED]   = &State_Machine_States[STATE_EXECUTING];   // NO-OP
+    State_Machine_States[STATE_EXECUTE_CFG].stateTransitionTable[SM_MSG_TIMESLOT_STARTED]   = &State_Machine_States[STATE_EXECUTING];
 
     // EXECUTING
     State_Machine_States[STATE_EXECUTING].stateMachine                                      = &State_Machine;

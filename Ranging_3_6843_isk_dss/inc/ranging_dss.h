@@ -107,6 +107,83 @@ typedef enum Ranging_SensorState_e
     Ranging_SensorState_STOPPED
 }Ranging_SensorState;
 
+/*!
+ * @brief
+ * Structure holds calibration save configuration used during sensor open.
+ *
+ * @details
+ *  The structure holds calibration save configuration.
+ */
+typedef struct Ranging_calibDataHeader_t
+{
+    /*! @brief      Magic word for calibration data header */
+    uint32_t    magic;
+
+    /*! @brief      Header length */
+    uint32_t    hdrLen;
+
+    /*! @brief      mmwLink version */
+    rlSwVersionParam_t  linkVer;
+
+    /*! @brief      RadarSS version */
+    rlFwVersionParam_t  radarSSVer;
+
+    /*! @brief      Data length */
+    uint32_t    dataLen;
+
+    /*! @brief      data padding to make sure calib data is 8 bytes aligned */
+    uint32_t      padding;
+} Ranging_calibDataHeader;
+
+/*!
+ * @brief
+ * Structure holds calibration save configuration used during sensor open.
+ *
+ * @details
+ *  The structure holds calibration save configuration.
+ */
+typedef struct Ranging_calibCfg_t
+{
+    /*! @brief      Calibration data header for validation read from flash */
+    Ranging_calibDataHeader    calibDataHdr;
+
+    /*! @brief      Size of Calibraton data size includng header */
+    uint32_t        sizeOfCalibDataStorage;
+
+    /*! @brief      Enable/Disable calibration save process  */
+    uint32_t        saveEnable;
+
+    /*! @brief      Enable/Disable calibration restore process  */
+    uint32_t        restoreEnable;
+
+    /*! @brief      Flash Offset to restore the data from */
+    uint32_t        flashOffset;
+} Ranging_calibCfg;
+
+
+/*!
+ * @brief
+ * Structure holds calibration restore configuration used during sensor open.
+ *
+ * @details
+ *  The structure holds calibration restore configuration.
+ */
+typedef struct Ranging_calibData_t
+{
+    /*! @brief      Calibration data header for validation read from flash */
+    Ranging_calibDataHeader    calibDataHdr;
+
+    /*! @brief      Calibration data */
+    rlCalibrationData_t               calibData;
+
+    /*! @brief      Phase shift Calibration data */
+    rlPhShiftCalibrationData_t     phaseShiftCalibData;
+
+    /* Future: If more fields are added to this structure or RL definitions
+        are changed, please add dummy padding bytes here if size of
+        Ranging_calibData is not multiple of 8 bytes. */
+} Ranging_calibData;
+
 /**
  * @brief
  *  Millimeter Wave Demo statistics
@@ -228,6 +305,9 @@ typedef struct Ranging_DSS_MCB_t
     /*! @brief   mmWave Open Configuration. */
     MMWave_OpenCfg              openCfg;
 
+    /*! @brief   Calibration cofiguration for save/restore */
+    Ranging_calibCfg                calibCfg;
+
     /*! @brief   Current time slot */
     rangingTimeSlot_t           currentTimeslot;
 
@@ -254,9 +334,9 @@ typedef struct Ranging_DSS_MCB_t
 /**************************************************************************
  *************************** Extern Definitions ***************************
  **************************************************************************/
-extern void Ranging_dataPathInit(Ranging_DataPathObj *obj);
-extern void Ranging_dataPathOpen(Ranging_DataPathObj *obj);
-extern void Ranging_dataPathClose(Ranging_DataPathObj *obj);
+//extern void Ranging_dataPathInit(Ranging_DataPathObj *obj);
+//extern void Ranging_dataPathOpen(Ranging_DataPathObj *obj);
+//extern void Ranging_dataPathClose(Ranging_DataPathObj *obj);
 
 /* Sensor Management Module Exported API */
 extern void _Ranging_debugAssert(int32_t expression, const char *file, int32_t line);

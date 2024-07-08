@@ -148,12 +148,13 @@ DPM_Buffer  resultBuffer;
  */
 Ranging_HSRAM gHSRAM;
 
-extern void ranging_dssMboxReadTask(UArg arg0, UArg arg1);
-extern void ranging_dssDataPathTask(UArg arg0, UArg arg1);
-
 /**************************************************************************
  ******************* Millimeter Wave Demo Functions Prototype *******************
  **************************************************************************/
+
+extern void ranging_dssMboxReadTask(UArg arg0, UArg arg1);
+extern void ranging_dssDataPathTask(UArg arg0, UArg arg1);
+
 static void Ranging_dssInitTask(UArg arg0, UArg arg1);
 static void Ranging_DPC_Ranging_reportFxn
 (
@@ -200,7 +201,7 @@ void Ranging_edmaInit(Ranging_DataPathObj *obj, uint8_t instance)
     errorCode = EDMA_init(instance);
     if (errorCode != EDMA_NO_ERROR)
     {
-        //System_printf ("Debug: EDMA instance %d initialization returned error %d\n", errorCode);
+        System_printf ("Debug: EDMA instance %d initialization returned error %d\n", errorCode);
         Ranging_debugAssert (0);
         return;
     }
@@ -219,6 +220,7 @@ void Ranging_edmaInit(Ranging_DataPathObj *obj, uint8_t instance)
 void Ranging_EDMA_errorCallbackFxn(EDMA_Handle handle, EDMA_errorInfo_t *errorInfo)
 {
     gMmwDssMCB.edmaContainer.EDMA_errorInfo = *errorInfo;
+    System_printf ("Debug: Ranging_EDMA_errorCallbackFxn\n");
     Ranging_debugAssert(0);
 }
 
@@ -233,6 +235,7 @@ void Ranging_EDMA_transferControllerErrorCallbackFxn(EDMA_Handle handle,
                 EDMA_transferControllerErrorInfo_t *errorInfo)
 {
     gMmwDssMCB.edmaContainer.EDMA_transferControllerErrorInfo = *errorInfo;
+    System_printf ("Debug: Ranging_EDMA_transferControllerErrorCallbackFxn\n");
     Ranging_debugAssert(0);
 }
 
@@ -259,6 +262,7 @@ static void Ranging_edmaOpen(Ranging_DataPathObj *obj, uint8_t instance)
         &edmaInstanceInfo);
     if (    obj->edmaCfg.edmaHandle == NULL)
     {
+        System_printf ("Debug: Ranging_edmaOpen Error\n");
         Ranging_debugAssert (0);
         return;
     }
@@ -272,7 +276,7 @@ static void Ranging_edmaOpen(Ranging_DataPathObj *obj, uint8_t instance)
     errorConfig.transferControllerCallbackFxn = Ranging_EDMA_transferControllerErrorCallbackFxn;
     if ((errCode = EDMA_configErrorMonitoring(obj->edmaCfg.edmaHandle, &errorConfig)) != EDMA_NO_ERROR)
     {
-        //System_printf("Error: EDMA_configErrorMonitoring() failed with errorCode = %d\n", errCode);
+        System_printf("Error: EDMA_configErrorMonitoring() failed with errorCode = %d\n", errCode);
         Ranging_debugAssert (0);
         return;
     }
@@ -743,7 +747,7 @@ static void Ranging_dssInitTask(UArg arg0, UArg arg1)
     ////////////////////////////////////////////////////////////////////////////////
 
     // Perform MMWave_init and MMWave_sync
-    initializeMMWaveSystem();
+    //initializeMMWaveSystem();
 
     ///////////////////////////////////////////////////////////////////////////////
     // Initialization of the DPM Module:
@@ -818,10 +822,13 @@ static void Ranging_dssInitTask(UArg arg0, UArg arg1)
      * - This should have a higher priroity than any other task which uses the
      *   mmWave control API
      *****************************************************************************/
+
+    /*
     Task_Params_init(&taskParams);
     taskParams.priority  = 6;
     taskParams.stackSize = 4 * 1024;
     Task_create(Ranging_dssMMWaveCtrlTask, &taskParams, NULL);
+    */
 
     // Launch the DPM Task //
     /*

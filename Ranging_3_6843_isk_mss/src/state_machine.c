@@ -46,6 +46,8 @@
 #include <inc/state_machine.h>
 #include <inc/state_machine_definitions.h>
 #include <inc/state_machine_functions.h>
+#include <inc/ranging_mss.h>
+#include <inc/uart_logging.h>
 #include <ti/utils/cycleprofiler/cycle_profiler.h>
 
 /* ----------------------------------------------------------------------------------------------------------------- *
@@ -57,6 +59,7 @@ extern const char *  state_to_string_table[STATE_TOTAL_COUNT];
 
 extern State_Information_Ptr_t State_Machine_States;
 extern StateMachine_t State_Machine;
+extern Ranging_MSS_MCB    gMmwMssMCB;
 
 
 /* ----------------------------------------------------------------------------------------------------------------- *
@@ -130,16 +133,14 @@ void State_Machine_Thread_Start(UArg arg0, UArg arg1)
     State_Information_Ptr_t newStateInformation;
     MsgObj msg;
     uint16_t state_machine_transition_message_id;
-    uint32_t timeTSCL;
 
     while ( 1 )
     {
-        timeTSCL = Cycleprofiler_getTimeStamp();
 
         // Wait forever until we receive a flag
-        if ( sm->currentState->stateNumber >= STATE_TOTAL_COUNT )
+        if ( sm->currentState->stateNumber >= sm->totalStates )
         {
-            System_printf( "State %u higher than STATE_TOTAL_COUNT: %u", sm->currentState->stateNumber, STATE_TOTAL_COUNT);
+            System_printf( "State %u higher than max # of states: %u", sm->currentState->stateNumber, sm->totalStates);
         }
         else
         {
@@ -151,7 +152,7 @@ void State_Machine_Thread_Start(UArg arg0, UArg arg1)
 //                       timeTSCL);
         }
 
-        Mailbox_pend(State_Machine.mbxHandle, &msg, BIOS_WAIT_FOREVER);
+        Mailbox_pend(sm->mbxHandle, &msg, BIOS_WAIT_FOREVER);
 
         state_machine_transition_message_id = msg.id;
 
@@ -161,10 +162,10 @@ void State_Machine_Thread_Start(UArg arg0, UArg arg1)
             break;
         }
 
-        Log_To_Uart(State_Machine.currentState,
+        Log_To_Uart( sm->uartHandle,
                     "\t\t%s\trx msg\t%s\r\n",
-                    state_to_string_table[State_Machine.currentState->stateNumber],
-                    message_to_string_table[ state_machine_transition_message_id ]);
+                    sm->state_to_string[sm->currentState->stateNumber],
+                    sm->message_to_string[ state_machine_transition_message_id ]);
 
         // Use the event_flag as a key in the state transition table to find the next state
         newStateInformation = sm->currentState->stateTransitionTable[ state_machine_transition_message_id ];
@@ -238,4 +239,22 @@ void Send_Sensor_Started_Message()
 void Send_DSS_Reports_Failure_Message( )
 {
     Send_State_Machine_Message( SM_MSG_DSS_REPORTS_FAILURE );
+}
+
+void Print_Current_State( )
+{
+    State_Information_Ptr_t p_stateInfo = State_Machine.currentState;
+    rangingTimeSlot_Ptr_t p_currentTimeSlot;
+    rangingTimeSlot_Ptr_t p_nextTimeSlot;
+
+    p_currentTimeSlot   = getCurrentTimeSlot(&gMmwMssMCB.timeSlotList);
+    p_nextTimeSlot      = getNextTimeSlot(&gMmwMssMCB.timeSlotList);
+
+    printf(
+             "Currently in state %u %s, times entered: %u, Current TSlot: %s, Next TSlot: %s\r\n",
+             p_stateInfo->stateNumber,
+             state_to_string_table[p_stateInfo->stateNumber],
+             p_stateInfo->timesEntered,
+             slotTypeNames[p_currentTimeSlot->slotType],
+             slotTypeNames[p_nextTimeSlot->slotType]);
 }

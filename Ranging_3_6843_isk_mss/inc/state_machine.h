@@ -47,4 +47,6 @@ void Send_Update_Timeslots_Message( );
 void Send_Transmit_Complete_Message();
 void Send_DSS_Reports_Failure_Message( );
 
+void Print_Current_State( );
+
 #endif /* APPLICATION_HAICU_STATE_MACHINE_H_ */

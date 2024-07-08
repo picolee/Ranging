@@ -12,9 +12,18 @@
 #include <shared/ranging_mailbox.h>
 #include <inc/state_machine.h>
 #include <inc/ranging_mss.h>
+#include <inc/uart_logging.h>
+#include <ti/utils/cycleprofiler/cycle_profiler.h>
 
 
-extern Ranging_MSS_MCB    gMmwMssMCB;
+extern Ranging_MSS_MCB  gMmwMssMCB;
+timeLowHighRegisters_t  g_DSSTime;
+extern uint32_t         pingStart;
+extern uint32_t         pingTime;
+
+void Send_Test_SM_New_Timeslot_Started_Message();
+
+void Send_Test_SM_ACK_Message();
 
 /**
 * @b Description
@@ -33,8 +42,9 @@ extern Ranging_MSS_MCB    gMmwMssMCB;
 void ranging_mssMboxReadTask(UArg arg0, UArg arg1)
 {
     int32_t retVal;
-    Ranging_MSS_DSS_Message message;
-    char output_data[20];
+    uint32_t timestamp;
+    Ranging_MSS_DSS_Message_t message;
+    Cycleprofiler_init();
 
     /* wait for new message and process all the messages received from the peer */
     while(1)
@@ -42,7 +52,7 @@ void ranging_mssMboxReadTask(UArg arg0, UArg arg1)
         Semaphore_pend(g_readSemaphore, BIOS_WAIT_FOREVER);
 
         // Read the message from the peer mailbox
-        retVal = Mailbox_read(g_mboxHandle, (uint8_t*)&message, sizeof(Ranging_MSS_DSS_Message));
+        retVal = Mailbox_read(g_mboxHandle, (uint8_t*)&message, sizeof(Ranging_MSS_DSS_Message_t));
         if (retVal < 0)
         {
             // Error: Unable to read the message. Setup the error code and return values
@@ -56,9 +66,13 @@ void ranging_mssMboxReadTask(UArg arg0, UArg arg1)
         }
         else
         {
-            /* Flush out the contents of the mailbox to indicate that we are done with the message. This will
-            * allow us to receive another message in the mailbox while we process the received message. */
+            // Flush out the contents of the mailbox to indicate that we are done with the message. This will
+            // allow us to receive another message in the mailbox while we process the received message.
             Mailbox_readFlush (g_mboxHandle);
+
+            // Record the DSS time
+            g_DSSTime.timeLow = message.messageCreatimeTime.timeLow;
+            g_DSSTime.timeHigh = message.messageCreatimeTime.timeHigh;
 
             /* Process the received message: */
             switch (message.messageId)
@@ -71,26 +85,18 @@ void ranging_mssMboxReadTask(UArg arg0, UArg arg1)
                 case DSS_REPORTS_NEXT_TIMESLOT_STARTED:
                 {
                     Send_New_Timeslot_Started_Message();
+                    //Send_Test_SM_New_Timeslot_Started_Message();
 
-                    snprintf(output_data,
-                             sizeof(output_data),
-                             "MBOX:Next TSlot\r\n");
-
-                    UART_writePolling (gMmwMssMCB.loggingUartHandle,
-                                       (uint8_t*)&output_data,
-                                       strlen(output_data));
+                    Log_To_Uart(    gMmwMssMCB.loggingUartHandle,
+                                    "MBOX:Next TSlot\r\n" );
                     break;
                 }
 
                 case DSS_REPORTS_SENSOR_STARTED:
                 {
-                    snprintf(output_data,
-                             sizeof(output_data),
-                             "MBOX:Sensor Start\r\n");
 
-                    UART_writePolling (gMmwMssMCB.loggingUartHandle,
-                                       (uint8_t*)&output_data,
-                                       strlen(output_data));
+                    Log_To_Uart(    gMmwMssMCB.loggingUartHandle,
+                                    "MBOX:Sensor Start\r\n" );
                     break;
                 }
 
@@ -100,13 +106,8 @@ void ranging_mssMboxReadTask(UArg arg0, UArg arg1)
                     memcpy(&gMmwMssMCB.rangingData, &message.data.rangingData, sizeof(DPC_Ranging_Data_t));
                     Send_Results_Available_Message();
 
-                    snprintf(output_data,
-                             sizeof(output_data),
-                             "MBOX:Result Avail\r\n");
-
-                    UART_writePolling (gMmwMssMCB.loggingUartHandle,
-                                       (uint8_t*)&output_data,
-                                       strlen(output_data));
+                    Log_To_Uart(    gMmwMssMCB.loggingUartHandle,
+                                    "MBOX:Result Avail\r\n" );
                     break;
                 }
 
@@ -115,13 +116,8 @@ void ranging_mssMboxReadTask(UArg arg0, UArg arg1)
                     // Send the report to the state machine
                     Send_DSS_Reports_Failure_Message();
 
-                    snprintf(output_data,
-                             sizeof(output_data),
-                             "MBOX:DSS Fail\r\n");
-
-                    UART_writePolling (gMmwMssMCB.loggingUartHandle,
-                                       (uint8_t*)&output_data,
-                                       strlen(output_data));
+                    Log_To_Uart(    gMmwMssMCB.loggingUartHandle,
+                                    "MBOX:DSS Fail\r\n" );
 
                     break;
                 }
@@ -129,24 +125,36 @@ void ranging_mssMboxReadTask(UArg arg0, UArg arg1)
                 case DSS_SEND_STRING_MESSAGE:
                 {
 
-                    snprintf(output_data,
-                             sizeof(output_data),
-                             "MBOX:String RX: ");
+                    Log_To_Uart(    gMmwMssMCB.loggingUartHandle,
+                                    "MBOX:String RX: " );
+                    break;
+                }
 
-                    UART_writePolling (gMmwMssMCB.loggingUartHandle,
-                                       (uint8_t*)&output_data,
-                                       strlen(output_data));
+                case PING:
+                {
+                    ack();
+                    break;
+                }
 
-                    UART_writePolling (gMmwMssMCB.loggingUartHandle,
-                                       (uint8_t*)&message.data.stringData,
-                                       strlen(message.data.stringData));
+                case ACK:
+                {
+                    pingTime = Cycleprofiler_getTimeStamp() - pingStart;
+                    timestamp = Cycleprofiler_getTimeStamp();
+                    Send_Test_SM_ACK_Message();
+
+                    Log_To_Uart(    gMmwMssMCB.loggingUartHandle,
+                                    "Ping Start: %u End: %u Duration: %u, DSS Time: %u\r\n",
+                                    pingStart,
+                                    timestamp,
+                                    pingTime,
+                                    g_DSSTime.timeLow );
                     break;
                 }
 
                 default:
                 {
                     // Message not supported
-                    System_printf ("Error: unsupported Mailbox message id=%d\n", message.messageId);
+                    System_printf ("Error: MSS - unsupported Mailbox message id: %d\n", message.messageId);
                     break;
                 }
             }

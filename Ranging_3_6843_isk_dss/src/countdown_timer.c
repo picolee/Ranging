@@ -51,6 +51,10 @@ volatile uint32_t executionTSCL = 0;
 volatile uint32_t executionTSCH = 0;
 volatile uint32_t timerIsrTSCL = 0;
 volatile uint32_t timerIsrTSCH = 0;
+volatile uint32_t timerTaskTSCL = 0;
+volatile uint32_t timerTaskTSCH = 0;
+volatile uint32_t entryPointTSCL = 0;
+volatile uint32_t entryPointTSCH = 0;
 
 //static Clock_Handle precisionClock;
 static Timer_Handle precisionTimer;
@@ -123,8 +127,9 @@ void clockISRMsgMSS(UArg arg)
 void clockISRSensorStart(UArg arg)
 {
     ////////////////////////////////////////////////
-    // 1. Wake up the high priority startSensorTask to perform precise delay
-    Semaphore_post(timerExecutedSemaphore);
+    // 1. Get the time
+    timerIsrTSCL = TSCL;
+    timerIsrTSCH = TSCH;
 
     ////////////////////////////////////////////////
     // 2. Stop the timer
@@ -133,6 +138,10 @@ void clockISRSensorStart(UArg arg)
         //Clock_stop(precisionClock);
         Timer_stop(precisionTimer);
     }
+
+    ////////////////////////////////////////////////
+    // 3. Wake up the high priority startSensorTask to perform precise delay
+    Semaphore_post(timerExecutedSemaphore);
 }
 
 void startSensorTask(UArg arg0, UArg arg1)
@@ -150,11 +159,11 @@ void startSensorTask(UArg arg0, UArg arg1)
         // 1. Perform coarse delay
 
         // Read the current time stamp counter values
-        timerIsrTSCL = TSCL;
-        timerIsrTSCH = TSCH;
+        timerTaskTSCL = TSCL;
+        timerTaskTSCH = TSCH;
 
         // Calculate the remaining cycles until the target time
-        remainingCycles = calculateDelayCycles(timerIsrTSCL, timerIsrTSCH, targetTSCL, targetTSCH);
+        remainingCycles = calculateDelayCycles(timerTaskTSCL, timerTaskTSCH, targetTSCL, targetTSCH);
         while(remainingCycles > 65535)
         {
             startTSCL = TSCL;
@@ -163,7 +172,7 @@ void startSensorTask(UArg arg0, UArg arg1)
         }
 
         // Disable interrupts
-        //key = HwiP_disable();
+        // key = HwiP_disable();
 
         ////////////////////////////////////////////////////////
         // 2. Fine delay
@@ -173,7 +182,12 @@ void startSensorTask(UArg arg0, UArg arg1)
 
         ////////////////////////////////////////////////
         // 3. Execute time critical function
-        //startSensorPartTwo();
+        /*
+         * We will use this when we have SYNC_IN working.
+         * Until then, the datapath task will alert the MSS to start the sensor
+         * We send the RANGING_NEXT_TIMESLOT_STARTED_EVT to the Task
+         * it sends dssReportsTimeslotStart()
+         *
         if(startSensor())
         {
             dssReportsFailure();
@@ -182,6 +196,7 @@ void startSensorTask(UArg arg0, UArg arg1)
         {
             dssReportsSensorStart();
         }
+        */
 
         // Record the execution time
         executionTSCL = TSCL;
@@ -200,8 +215,9 @@ void startSensorTask(UArg arg0, UArg arg1)
 static void configureAndStartTimer(clockISRFunc func)
 {
     uint32_t startTSCL, startTSCH;
-    uint32_t delayCycles;
+    uint32_t delayCycles, delayMicroseconds, delayCounts;
     Error_Block eb;
+    Timer_Params params;
     xdc_runtime_Types_FreqHz fqHz;
 
     // Initialize the error block
@@ -219,42 +235,92 @@ static void configureAndStartTimer(clockISRFunc func)
     delayCycles = calculateDelayCycles(startTSCL, startTSCH, targetTSCL, targetTSCH);
     delayCycles = delayCycles - TIMER_MARGIN;
 
+
+    delayMicroseconds   = delayCycles/DSP_CLOCK_MHZ;
+
+    // Configuration code for Timer 0 to trigger an interrupt after 'delayCycles'
+
+    if (precisionTimer != NULL)
+    {
+        Timer_delete(&precisionTimer);
+    }
+
+    Timer_Params_init(&params);
+    params.period = delayMicroseconds;  // Period in clock cycles
+    //params.periodType = Timer_PeriodType_COUNTS;
+    params.periodType = Timer_PeriodType_MICROSECS;
+    params.arg = 0;
+    params.runMode = ti_sysbios_interfaces_ITimer_RunMode_ONESHOT;
+    params.startMode = ti_sysbios_interfaces_ITimer_StartMode_USER;
+
+    precisionTimer = Timer_create(Timer_ANY, func, &params, &eb);
+    if (precisionTimer == NULL)
+    {
+        System_printf("Failed to create precision timer %s.\n", Error_getMsg(&eb));
+        dssReportsFailure();
+    }
+
+    /*
+
     if(precisionTimer == NULL)
     {
+
+        delayMicroseconds   = delayCycles/DSP_CLOCK_MHZ;
+
         // Configuration code for Timer 0 to trigger an interrupt after 'delayCycles'
         Timer_Params params;
         Timer_Params_init(&params);
-        params.period = delayCycles;  // Period in clock cycles
-        params.periodType = Timer_PeriodType_COUNTS;
+        params.period = delayMicroseconds;  // Period in clock cycles
+        //params.periodType = Timer_PeriodType_COUNTS;
+        params.periodType = Timer_PeriodType_MICROSECS;
         params.arg = 0;
+        params.runMode = ti_sysbios_interfaces_ITimer_RunMode_ONESHOT;
+        params.startMode = ti_sysbios_interfaces_ITimer_StartMode_USER;
 
         precisionTimer = Timer_create(Timer_ANY, func, &params, &eb);
-        Timer_getFreq(precisionTimer, &fqHz);
-        timerFreqMHz = fqHz.lo/1000000;
-        delayCycles = delayCycles/DSP_CLOCK_MHZ;
-        delayCycles = delayCycles*timerFreqMHz;
-        Timer_setPeriod(precisionTimer, delayCycles);
         if (precisionTimer == NULL)
         {
             System_printf("Failed to create precision timer %s.\n", Error_getMsg(&eb));
+            dssReportsFailure();
         }
+//        else
+//        {
+//            Timer_getFreq(precisionTimer, &fqHz);
+//            timerFreqMHz        = fqHz.lo/1000000;
+//            delayCounts         = delayMicroseconds*timerFreqMHz;
+//            Timer_setPeriod(precisionTimer, delayMicroseconds);
+//        }
     }
     else
     {
         Timer_setFunc(precisionTimer, func, 0);
-        delayCycles = delayCycles/DSP_CLOCK_MHZ;
-        delayCycles = delayCycles*timerFreqMHz;
-        Timer_setPeriod(precisionTimer, delayCycles);
+        delayMicroseconds   = delayCycles/DSP_CLOCK_MHZ;
+        delayCounts         = delayCycles*timerFreqMHz;
+        Timer_setPeriod(precisionTimer, delayMicroseconds);
     }
+    */
 
     Timer_start(precisionTimer);
 }
 
 // Function to set the target time
-void setTargetTime(uint32_t inputTscl, uint32_t inputTsch)
+uint16_t setTargetTime(uint32_t inputTSCL, uint32_t inputTSCH)
 {
-    targetTSCL = inputTscl;
-    targetTSCH = inputTsch;
+    uint64_t currentCycles, targetCycles;
+    uint32_t currentTSCL, currentTSCH;
+    currentTSCL = TSCL;
+    currentTSCH = TSCH;
+    currentCycles = ((uint64_t)currentTSCH << 32) | currentTSCL;
+    targetCycles = ((uint64_t)inputTSCH << 32) | inputTSCL;
+
+    if(targetCycles < currentCycles)
+    {
+        return 1;
+    }
+    targetTSCL = inputTSCL;
+    targetTSCH = inputTSCH;
+
+    return 0;
 }
 
 // Function to get the target time
@@ -300,26 +366,50 @@ void computeTargetTime(uint32_t startTSCL, uint32_t startTSCH, float deltaTimeSe
 }
 
 // Function to configure the timer to trigger at a specific TSCL and TSCH
-void launchSensorAtTargetTime(uint32_t targetTSCL, uint32_t targetTSCH)
+void launchSensorAtTargetTime(uint32_t desiredTSCL, uint32_t desiredTSCH)
 {
-    // Perform all of the parts of starting the sensor except the actual starting
-    //startSensorPartOne();
-
+    entryPointTSCL = TSCL;
+    entryPointTSCH = TSCH;
     // Record the target time into variables that are global for this file
-    setTargetTime(targetTSCL, targetTSCH);
+    if(setTargetTime(desiredTSCL, desiredTSCH))
+    {
+        System_printf("Missed target time %u.%u, currently %u.%u.\n",
+                      desiredTSCH, desiredTSCL,
+                      entryPointTSCH, entryPointTSCL);
+        System_printf("Missed target time.\n");
+        System_printf("Slot type: %s.\n", slotTypeNames[gMmwDssMCB.nextTimeslot.slotType]);
+        System_printf("Times entered: %u.\n", gMmwDssMCB.nextTimeslot.timesEntered);
+        dssReportsFailure();
+        return;
+    }
 
     // Launch the timer with the calculated delay
     configureAndStartTimer(clockISRSensorStart);
+
+
+//    Event_post(gMmwDssMCB.eventHandle, RANGING_NEXT_TIMESLOT_STARTED_EVT);
 }
 
 // Function to configure the timer to trigger at a specific TSCL and TSCH
-void msgMssAtTargetTime(uint32_t targetTSCL, uint32_t targetTSCH)
+void msgMssAtTargetTime(uint32_t desiredTSCL, uint32_t desiredTSCH)
 {
+    entryPointTSCL = TSCL;
+    entryPointTSCH = TSCH;
     // Record the target time into variables that are global for this file
-    setTargetTime(targetTSCL, targetTSCH);
+    if(setTargetTime(desiredTSCL, desiredTSCH))
+    {
+        System_printf("Missed target time.\n");
+        System_printf("Slot type: %s.\n", slotTypeNames[gMmwDssMCB.nextTimeslot.slotType]);
+        System_printf("Times entered: %u.\n", gMmwDssMCB.nextTimeslot.timesEntered);
+        dssReportsFailure();
+        return;
+    }
 
     // Launch the timer with the calculated delay
     configureAndStartTimer(clockISRMsgMSS);
+
+
+//    Event_post(gMmwDssMCB.eventHandle, RANGING_NEXT_TIMESLOT_STARTED_EVT);
 }
 
 // Initialize the semaphore that is used to signal when the timer is completed
@@ -334,6 +424,7 @@ void timerInitialization( Task_Handle* task )
     {
         // Handle error
         System_printf("Failed to create timerExecutedSemaphore.\n");
+        dssReportsFailure();
     }
 
     Task_Params_init(&taskParams);
@@ -341,10 +432,3 @@ void timerInitialization( Task_Handle* task )
     taskParams.stackSize            = 4 * 1024;
     (*task)                         = Task_create(startSensorTask, &taskParams, NULL);
 }
-
-// We define a custom timer in the mmw_dss.cfg file.
-// This is its callback.
-//void timerTick(UArg arg)
-//{
-//    Clock_tick();
-//}

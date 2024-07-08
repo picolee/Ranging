@@ -32,7 +32,6 @@ typedef enum ipcMessageId
 {
     CMD_DSS_TO_START_SENSOR_NOW = 0,
     CMD_DSS_TO_START_SENSOR_AT_NEXT_TIMESLOT,
-    CMD_DSS_TO_START_SENSOR_AT_SPECIFIC_TX_TIME,
     CMD_DSS_TO_MSG_MSS_AT_NEXT_TIMESLOT,
     MSS_SENDS_CFG_DATA_TO_DSS,
     SET_CURRENT_TIMESLOT,
@@ -42,23 +41,26 @@ typedef enum ipcMessageId
     DSS_REPORTS_RESULT,
     DSS_REPORTS_SUCCESS,
     DSS_REPORTS_FAILURE,
-    DSS_SEND_STRING_MESSAGE
+    DSS_SEND_STRING_MESSAGE,
+    PING,
+    ACK
 }ipcMessageId_t;
 
 /**
  * @brief
  *  Message passed between MSS and DSS
  */
-typedef struct Ranging_MSS_DSS_Message_t
+typedef struct
 {
-    ipcMessageId_t                  messageId;
+    ipcMessageId_t          messageId;
+    timeLowHighRegisters_t  messageCreatimeTime;
     union
     {
         rangingTimeSlot_t timeSlot;
         DPC_Ranging_Data_t rangingData;
         char stringData[128];
     } data;
-}Ranging_MSS_DSS_Message;
+}Ranging_MSS_DSS_Message_t;
 
 ////////////////////////////////////////////////////
 //  FUNCTIONS
@@ -81,9 +83,10 @@ void dssReportsSensorStart();
 void dssSendStringToMss(const char *string);
 void sendCfgDataToDSS();
 void setNextTimeSlotOnDss(rangingTimeSlot_Ptr_t   p_timeSlot);
-void cmdDssToStartSensorNow(rangingTimeSlot_Ptr_t   p_timeSlot);
-void cmdDssToStartSensorAtNextTimeslot(rangingTimeSlot_Ptr_t   p_timeSlot);
-void cmdDssToStartSensorAtSpecificTxTime(rangingTimeSlot_Ptr_t   p_timeSlot);
+void cmdDssToStartSensorNow();
+void cmdDssToStartSensorAtNextTimeslot();
 void cmdDssToMsgMssAtNextTimeslot();
+void ping();
+void ack();
 
 #endif /* INC_RANGING_MAILBOX_H_ */

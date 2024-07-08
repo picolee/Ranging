@@ -585,6 +585,18 @@ typedef struct DPC_Ranging_Data
     /*! @brief  Clock cycles spent finding the gold code peak */
     int32_t     processingTime;
 
+    /*! @brief  gold code processing start time from TSCL */
+    uint32_t     processingStartTimeLow;
+
+    /*! @brief  gold code processing start time from TSCH */
+    uint32_t     processingStartTimeHigh;
+
+    /*! @brief  gold code processing finish time from TSCL */
+    uint32_t     processingEndTimeLow;
+
+    /*! @brief  gold code processing finish time from TSCH */
+    uint32_t     processingEndTimeHigh;
+
     /*! @brief processing time to compute the magnitude of the ADC samples*/
     uint32_t    magAdcTime;
 

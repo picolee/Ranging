@@ -579,9 +579,8 @@ void ranging_dssDataPathTask(UArg arg0, UArg arg1)
         if (event & RANGING_STOP_EVT)
         {
             // Output to the MSS
-            formatString(TSCHigh, TSCLow, ": RANGING_STOP_EVT\r\n", &statusString[0], sizeof(statusString));
-            dssSendStringToMss(&statusString[0]);
-            memset(statusString, 0, sizeof(statusString));
+            //snprintf(statusString, sizeof(statusString), "%u.%u: RANGING_STOP_EVT\r\n", TSCHigh, TSCLow);
+            //dssSendStringToMss(&statusString[0]);
         }
 
         //////////////////////////////////////////////////////////////////////////
@@ -599,9 +598,8 @@ void ranging_dssDataPathTask(UArg arg0, UArg arg1)
             dssReportsTimeslotStart();
 
             // Output to the MSS
-            formatString(TSCHigh, TSCLow, ": RANGING_NEXT_TIMESLOT_STARTED_EVT\r\n", &statusString[0], sizeof(statusString));
-            dssSendStringToMss(&statusString[0]);
-            memset(statusString, 0, sizeof(statusString));
+            //snprintf(statusString, sizeof(statusString), "%u.%u: NEXT_TIMESLOT_EVT\r\n", TSCHigh, TSCLow);
+            //dssSendStringToMss(&statusString[0]);
         }
 
         //////////////////////////////////////////////////////////////////////////
@@ -615,9 +613,8 @@ void ranging_dssDataPathTask(UArg arg0, UArg arg1)
             workingVariables->inProgress = true;
 
             // Output to the MSS
-            formatString(TSCHigh, TSCLow, ": RANGING_FRAMESTART_EVT\r\n", &statusString[0], sizeof(statusString));
-            dssSendStringToMss(&statusString[0]);
-            memset(statusString, 0, sizeof(statusString));
+            //snprintf(statusString, sizeof(statusString), "%u.%u:%u FRAMESTART_EVT\r\n", TSCHigh, TSCLow, gMmwDssMCB.stats.frameStartIntCounter);
+            //dssSendStringToMss(&statusString[0]);
         }
 
         //////////////////////////////////////////////////////////////////////////
@@ -628,15 +625,8 @@ void ranging_dssDataPathTask(UArg arg0, UArg arg1)
             workingVariables->chirpCount++;
 
             // Check for last chirp
-            if(workingVariables->chirpCount == workingVariables->DPParams.numChirpsPerFrame)
+            if(gMmwDssMCB.stats.chirpIntCounter == workingVariables->DPParams.numChirpsPerFrame)
             {
-                // Stop the sensor
-                if(Ranging_mmWaveCtrlStop())
-                {
-                    System_printf("Error stopping sensor.\n");
-                    Ranging_debugAssert(0);
-                }
-
                 workingVariables->chirpCount = 0;
                 workingVariables->areAllChirpsCompletedForThisFrame = true;
 
@@ -652,13 +642,11 @@ void ranging_dssDataPathTask(UArg arg0, UArg arg1)
                 workingVariables->inProgress = false;
 
                 // Output to the MSS
-                formatString(TSCHigh, TSCLow, ": Last RANGING_CHIRP_EVT\r\n", &statusString[0], sizeof(statusString));
-                dssSendStringToMss(&statusString[0]);
-                memset(statusString, 0, sizeof(statusString));
+                //formatString(TSCHigh, TSCLow, ": Last RANGING_CHIRP_EVT\r\n", &statusString[0], sizeof(statusString));
+                //snprintf(statusString, sizeof(statusString), "%u.%u:%u Last CHIRP\r\n", TSCHigh, TSCLow, gMmwDssMCB.stats.chirpIntCounter);
+                //dssSendStringToMss(&statusString[0]);
+                gMmwDssMCB.stats.chirpIntCounter = 0;
             }
-            formatString((uint32_t)gMmwDssMCB.stats.chirpIntCounter, gMmwDssMCB.dataPathObject.rangingData.chirpStartTimeLow, "CHIRP\r\n", &statusString[0], sizeof(statusString));
-            //dssSendStringToMss(&statusString[0]);
-            memset(statusString, 0, sizeof(statusString));
         }
 
         //////////////////////////////////////////////////////////////////////////////
@@ -666,6 +654,10 @@ void ranging_dssDataPathTask(UArg arg0, UArg arg1)
         //////////////////////////////////////////////////////////////////////////////
         if (event & RANGING_CONFIG_EVT)
         {
+            // Sent from:
+            //  - SET_NEXT_TIMESLOT                             (from SM_Func_Cfg for all time slots)
+
+
             //////////////////////////////////////////////////////////////////////////
             // SETUP GOLD CODES
             //////////////////////////////////////////////////////////////////////////
@@ -676,9 +668,11 @@ void ranging_dssDataPathTask(UArg arg0, UArg arg1)
                 // TX
                 workingVariables->DPParams.numChirpsPerFrame    = pow(2,gMmwDssMCB.nextTimeslot.goldCodeNumBits) - 1;
                 // Output to the MSS
-                formatString(TSCHigh, TSCLow, ": CFG TX\r\n", &statusString[0], sizeof(statusString));
+                snprintf(statusString, sizeof(statusString), "%u.%u: CFG TX %u Chirps\r\n", TSCHigh, TSCLow, workingVariables->DPParams.numChirpsPerFrame);
             }
-            else
+            else if ( gMmwDssMCB.nextTimeslot.slotType == SLOT_TYPE_SYNCHRONIZATION_RX ||
+                    gMmwDssMCB.nextTimeslot.slotType == SLOT_TYPE_RANGING_START_CODE_RX ||
+                    gMmwDssMCB.nextTimeslot.slotType == SLOT_TYPE_RANGING_RESPONSE_CODE_RX)
             {
                 // RX
                 workingVariables->DPParams.numChirpsPerFrame    = 1;
@@ -697,10 +691,13 @@ void ranging_dssDataPathTask(UArg arg0, UArg arg1)
                     }
                 }
                 // Output to the MSS
-                formatString(TSCHigh, TSCLow, ": CFG RX\r\n", &statusString[0], sizeof(statusString));
+                //snprintf(statusString, sizeof(statusString), "%u.%u: CFG RX %u Chirps\r\n", TSCHigh, TSCLow, workingVariables->DPParams.numChirpsPerFrame);
             }
-            dssSendStringToMss(&statusString[0]);
-            memset(statusString, 0, sizeof(statusString));
+            else if ( gMmwDssMCB.nextTimeslot.slotType == SLOT_TYPE_NO_OP)
+            {
+                // NO OP
+            }
+            //dssSendStringToMss(&statusString[0]);
         }
     }
 

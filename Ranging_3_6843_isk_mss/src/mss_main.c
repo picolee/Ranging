@@ -698,10 +698,10 @@ Ranging_HSRAM gHSRAM;
 #pragma DATA_ALIGN(gHSRAM, 4);
 
  /*! TCMB RAM buffer for object detection DPC */
-#define MMWDEMO_OBJDET_LOCALRAM_SIZE (4U * 1024U)
-uint8_t gDPCTCM[MMWDEMO_OBJDET_LOCALRAM_SIZE];
-#pragma DATA_SECTION(gDPCTCM, ".dpcLocalRam");
-#pragma DATA_ALIGN(gDPCTCM, 4);
+//#define MMWDEMO_OBJDET_LOCALRAM_SIZE (4U * 1024U)
+//uint8_t gDPCTCM[MMWDEMO_OBJDET_LOCALRAM_SIZE];
+//#pragma DATA_SECTION(gDPCTCM, ".dpcLocalRam");
+//#pragma DATA_ALIGN(gDPCTCM, 4);
 
 /*! L3 RAM buffer for object detection DPC */
 uint8_t gMmwL3[SOC_L3RAM_SIZE];
@@ -752,6 +752,8 @@ void Ranging_DPC_reportFxn
     uint32_t    arg0,
     uint32_t    arg1
 );
+
+void Test_DSS_Timer_Callback_State_Machine_Init(uint8_t taskPriority, UART_Handle uart);
 
 int32_t MMWave_stop_internal (MMWave_Handle mmWaveHandle, int32_t* errCode);
 
@@ -987,7 +989,10 @@ static int32_t Ranging_eventCallbackFxn(uint16_t msgId, uint16_t sbId, uint16_t 
                 }
                 case RL_RF_AE_MON_TIMING_FAIL_REPORT_SB:
                 {
-                    System_printf("Debug: Monitoring FAIL Report received \n");
+                    //System_printf("Debug: Monitoring FAIL Report received \n");
+                    rlCalMonTimingErrorReportData_t *timingError = (rlCalMonTimingErrorReportData_t *)payload;
+                    //CLI_write("TFAIL: %u \n", timingError->timingFailCode);
+                    //Print_Current_State( );
                     gMmwMssMCB.stats.failedTimingReports++;
                     break;
                 }
@@ -1285,7 +1290,7 @@ int32_t Ranging_startSensor(void)
 
     DebugP_log0("App: MMWave_start Issued\n");
 
-    System_printf("Starting Sensor (issuing MMWave_start)\n");
+    //System_printf("Starting Sensor (issuing MMWave_start)\n");
 
     // Start the mmWave module: The configuration has been applied successfully.
     if (MMWave_start(gMmwMssMCB.ctrlHandle, &calibrationCfg, &errCode) < 0)
@@ -1437,6 +1442,7 @@ void Ranging_stopSensor(void)
     }
 
     Ranging_stopLVDS();
+    gMmwMssMCB.sensorState = Ranging_SensorState_STOPPED;
 }
 
 /**************************************************************************
@@ -1785,11 +1791,11 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
     MMWave_InitCfg      initCfg;
     UART_Params         uartParams;
     Task_Params         taskParams;
-    Semaphore_Params    semParams;
     int32_t             i;
 
     /* Debug Message: */
     System_printf("Debug: Launched the Initialization Task\n");
+    System_printf ("Tick period: %d us\n", Clock_tickPeriod);
 
     ////////////////////////////////////////////////////////////////////////////////
     // Initialize the time slot schedule
@@ -1836,7 +1842,7 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
     /*****************************************************************************
      * Open the mmWave SDK components:
      *****************************************************************************/
-    /* Setup the default UART Parameters */
+    // Set up the 115200 baud UART that is used to send commands to the MSS
     UART_Params_init(&uartParams);
     uartParams.clockFrequency = gMmwMssMCB.cfg.platformCfg.sysClockFrequency;
     uartParams.baudRate       = gMmwMssMCB.cfg.platformCfg.commandBaudRate;
@@ -1850,7 +1856,7 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
         return;
     }
 
-    /* Setup the default UART Parameters */
+    // Set up the 921600 baud UART that is used to report states and results
     UART_Params_init(&uartParams);
     uartParams.writeDataMode = UART_DATA_BINARY;
     uartParams.readDataMode = UART_DATA_BINARY;
@@ -1866,13 +1872,6 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
         Ranging_debugAssert (0);
         return;
     }
-
-    /* Create binary semaphores which is used to signal DPM_start/DPM_stop/DPM_ioctl is done
-     * to the sensor management task. The signalling (Semaphore_post) will be done
-     * from DPM registered report function (which will execute in the DPM execute task context). */
-    Semaphore_Params_init(&semParams);
-    semParams.mode                  = Semaphore_Mode_BINARY;
-    gMmwMssMCB.dssMboxSemHandle     = Semaphore_create(0, &semParams, NULL);
 
     /* Open EDMA driver */
     Ranging_edmaInit();
@@ -1894,12 +1893,12 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
     initCfg.linkCRCCfg.useCRCDriver     = 1U;
     initCfg.linkCRCCfg.crcChannel       = CRC_Channel_CH1;
     initCfg.cfgMode                     = MMWave_ConfigurationMode_FULL;
-    initCfg.executionMode               = MMWave_ExecutionMode_COOPERATIVE;
-    initCfg.cooperativeModeCfg.cfgFxn   = Ranging_mssMmwaveConfigCallbackFxn;
-    initCfg.cooperativeModeCfg.openFxn  = Ranging_mssMmwaveOpenCallbackFxn;
-    initCfg.cooperativeModeCfg.closeFxn = Ranging_mssMmwaveCloseCallbackFxn;
-    initCfg.cooperativeModeCfg.startFxn = Ranging_mssMmwaveStartCallbackFxn;
-    initCfg.cooperativeModeCfg.stopFxn  = Ranging_mssMmwaveStopCallbackFxn;
+    initCfg.executionMode               = MMWave_ExecutionMode_ISOLATION;
+//    initCfg.cooperativeModeCfg.cfgFxn   = Ranging_mssMmwaveConfigCallbackFxn;
+//    initCfg.cooperativeModeCfg.openFxn  = Ranging_mssMmwaveOpenCallbackFxn;
+//    initCfg.cooperativeModeCfg.closeFxn = Ranging_mssMmwaveCloseCallbackFxn;
+//    initCfg.cooperativeModeCfg.startFxn = Ranging_mssMmwaveStartCallbackFxn;
+//    initCfg.cooperativeModeCfg.stopFxn  = Ranging_mssMmwaveStopCallbackFxn;
 
     /* Initialize and setup the mmWave Control module */
     gMmwMssMCB.ctrlHandle = MMWave_init (&initCfg, &errCode);
@@ -1934,6 +1933,7 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
         /* Sleep and poll again: */
         Task_sleep(1);
     }
+    System_printf ("Debug: mmWave Control Synchronization was successful\n");
 
     /* Get RF frequency scale factor */
     gMmwMssMCB.rfFreqScaleFactor = SOC_getDeviceRFFreqScaleFactor(gMmwMssMCB.socHandle, &errCode);
@@ -2028,6 +2028,9 @@ static void Ranging_initTask(UArg arg0, UArg arg1)
      * Initialize the State Machine
      *****************************************************************************/
     State_Machine_Init( STATE_MACHINE_TASK_PRIORITY, gMmwMssMCB.loggingUartHandle);
+
+    // This state machine runs tests including state transition timing, DSS callback timing
+    //Test_DSS_Timer_Callback_State_Machine_Init( STATE_MACHINE_TASK_PRIORITY, gMmwMssMCB.loggingUartHandle);
 
     return;
 }

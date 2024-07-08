@@ -132,9 +132,9 @@ struct State_Information_t
     uint16_t                        stateNumber;                // State_Enum_t that corresponds to the state information struct
     uint32_t                        timesEntered;               // Tracks the total number of times this state was entered
     StateMachine_Ptr_t              stateMachine;               // Pointer to the owning state machine
-    rangingTimeSlot_Ptr_t           previousTimeSlot_ptr;       // Pointer to the previous time slot
-    rangingTimeSlot_Ptr_t           currentTimeSlot_ptr;        // Pointer to the current time slot
-    rangingTimeSlot_Ptr_t           nextTimeSlot_ptr;           // Pointer to the next time slot
+    uint32_t                        stateStartTimeCycles;       // 200 MHz clock cycles
+    uint32_t                        stateEndTimeCycles;         // 200 MHz clock cycles
+    uint32_t                        stateDurationCycles;        // 200 MHz clock cycles
 };
 
 struct StateMachine_t
@@ -147,6 +147,8 @@ struct StateMachine_t
     Task_Handle taskHandle;
     Task_Params taskParams;
     UART_Handle uartHandle;
+    const char **  message_to_string;
+    const char **  state_to_string;
 };
 
 void Configure_Initial_State_To_Idle( void );

@@ -111,7 +111,7 @@ extern void idle_power_cycle(IdleModeCfg   idleModeCfg);
  **************************************************************************/
 #define MMWDEMO_DATAUART_MAX_BAUDRATE_SUPPORTED 3125000
 #define RECEIVE_PROFILE_NUMBER 0
-#define TRANSMIT_PROFILE_NUMBER 1
+#define TRANSMIT_PROFILE_NUMBER 0
 
 /**************************************************************************
  *************************** CLI  Function Definitions **************************
@@ -501,7 +501,7 @@ int32_t Ranging_ActivateReceiveConfiguration()
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpEndIdx        = 0;          // chirpEndIdx
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numLoops           = 1;          // numLoops
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numFrames          = 1;          // numFrames
-    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.framePeriodicity   = (uint32_t)((float)FRAME_PERIOD_MS * 1000000 / 5);  // framePeriodicity
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.framePeriodicity   = (uint32_t)((float)RX_FRAME_PERIOD_MS * 1000000 / 5);  // framePeriodicity
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.triggerSelect      = 1;                                    // triggerSelect
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.frameTriggerDelay  = (uint32_t)((float)0 * 1000000 / 5);   // frameTriggerDelay
 
@@ -610,6 +610,7 @@ int32_t Ranging_CreateTransmitConfiguration(float frequencyInGhz, uint8_t numGol
     //<txEnable>             1       % b0 Enable TX0, b1 Enable TX1, b2 Enable TX2
 
 
+    // This allocates memory for the gold code, which must be released
     if( generate_one_gold_sequence(
             numGoldCodeBits,
             &goldCode,
@@ -624,8 +625,8 @@ int32_t Ranging_CreateTransmitConfiguration(float frequencyInGhz, uint8_t numGol
 
     for(index = 0; index < goldCode.length; index++)
     {
-        chirpCfg.chirpStartIdx   = index + 1;
-        chirpCfg.chirpEndIdx     = index + 1;
+        chirpCfg.chirpStartIdx   = index;
+        chirpCfg.chirpEndIdx     = index;
         chirpCfg.profileId       = TRANSMIT_PROFILE_NUMBER;
 
         /* Translate from Hz to number of [1 LSB = (gCLI_mmwave_freq_scale_factor * 1e9) / 2^26 Hz]
@@ -657,9 +658,11 @@ int32_t Ranging_CreateTransmitConfiguration(float frequencyInGhz, uint8_t numGol
         if (MMWave_addChirp (profileHandle, &chirpCfg, &errCode) == NULL)
         {
             /* Error: Unable to add the chirp. Return the error code. */
+            free(goldCode.data);
             return errCode;
         }
     }
+    free(goldCode.data);
     return 0;
 }
 
@@ -680,11 +683,11 @@ int32_t Ranging_ActivateTransmitConfiguration()
     memset ((void *)&gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg, 0, sizeof(rlFrameCfg_t));
 
     /* Populate the frame configuration: */
-    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpStartIdx      = 1;          // chirpStartIdx
-    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpEndIdx        = 63;         // chirpEndIdx
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpStartIdx      = 0;          // chirpStartIdx
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.chirpEndIdx        = 62;         // chirpEndIdx
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numLoops           = 1;          // numLoops
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.numFrames          = 1;          // numFrames
-    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.framePeriodicity   = (uint32_t)((float)FRAME_PERIOD_MS * 1000000 / 5);  // framePeriodicity
+    gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.framePeriodicity   = (uint32_t)((float)TX_FRAME_PERIOD_MS * 1000000 / 5);  // framePeriodicity
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.triggerSelect      = 1;                                    // triggerSelect
     gMmwMssMCB.cfg.ctrlCfg.u.frameCfg.frameCfg.frameTriggerDelay  = (uint32_t)((float)0 * 1000000 / 5);   // frameTriggerDelay
 

@@ -18,6 +18,7 @@ extern MMWave_Dualcore    gMMWave_DualcoreMCB;
 extern Ranging_DSS_MCB    gMmwDssMCB;
 #else
 extern Ranging_MSS_MCB    gMmwMssMCB;
+#include <ti/utils/cli/cli.h>
 #endif
 
 /*
@@ -238,6 +239,7 @@ int32_t MMWave_stop_internal (MMWave_Handle mmWaveHandle, int32_t* errCode)
     {
         /* Error: Invalid argument. */
         *errCode = MMWave_encodeError (MMWave_ErrorLevel_ERROR, MMWAVE_EINVAL, 0);
+        System_printf ("mmWave Stop error ptrMMWaveMCB == NULL\n");
         goto exit;
     }
 
@@ -249,6 +251,8 @@ int32_t MMWave_stop_internal (MMWave_Handle mmWaveHandle, int32_t* errCode)
     {
         /* Error: Invalid usage the module should be started before it can be stopped. */
         *errCode = MMWave_encodeError (MMWave_ErrorLevel_ERROR, MMWAVE_EINVAL, 0);
+        /* Warning: This is treated as a successful stop. */
+        System_printf ("mmWave Stop error MMWAVE_STATUS_STARTED == 0U\n");
         goto exit;
     }
 
@@ -373,9 +377,21 @@ int32_t Ranging_mmWaveCtrlStop (void)
         }
         else
         {
-            /* Warning: This is treated as a successful stop. */
-            System_printf ("mmWave Stop error ignored [Error code: %d Subsystem: %d]\n",
-                            mmWaveErrorCode, subsysErrorCode);
+            if(subsysErrorCode != 21 )
+            {
+                System_printf ("mmWave Stop error ignored [Error code: %d Subsystem: %d]\n",
+                                mmWaveErrorCode, subsysErrorCode);
+            }
+            else
+            {
+                // This occurs if we stop the sensor and it's already stopped.
+                // That's ok to ignore
+
+#ifndef SUBSYS_DSS
+                //CLI_write( "X" );
+#endif
+                errCode = 0;
+            }
         }
     }
 

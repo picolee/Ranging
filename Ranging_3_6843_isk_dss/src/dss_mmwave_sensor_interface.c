@@ -19,6 +19,25 @@
 
 extern Ranging_DSS_MCB    gMmwDssMCB;
 
+/**
+ * @brief
+ *  Global Variable for LDO BYPASS config, PLease consult your
+ * board/EVM user guide before changing the values here
+ */
+rlRfLdoBypassCfg_t gRFLdoBypassCfg =
+{
+    .ldoBypassEnable   = 0, /* 1.0V RF supply 1 and 1.0V RF supply 2 */
+    .supplyMonIrDrop   = 0, /* IR drop of 3% */
+    .ioSupplyIndicator = 0, /* 3.3 V IO supply */
+};
+
+/* Calibration Data Save/Restore defines */
+#define MMWDEMO_CALIB_FLASH_SIZE                  4096
+#define MMWDEMO_CALIB_STORE_MAGIC            (0x7CB28DF9U)
+
+Ranging_calibData gCalibDataStorage;
+#pragma DATA_ALIGN(gCalibDataStorage, 8);
+
 int32_t MMWave_start_part_one_internal (MMWave_Handle mmWaveHandle, const MMWave_CalibrationCfg* ptrCalibrationCfg, int32_t* errCode);
 int32_t MMWave_start_part_two_internal (MMWave_Handle mmWaveHandle, const MMWave_CalibrationCfg* ptrCalibrationCfg, int32_t* errCode);
 int32_t MMWave_start_internal (MMWave_Handle mmWaveHandle, const MMWave_CalibrationCfg* ptrCalibrationCfg, int32_t* errCode);
@@ -102,6 +121,169 @@ int16_t startSensor()
         return -1;
     }
 
+    return 0;
+}
+
+/**
+ *  @b Description
+ *  @n
+ *      mmw demo helper Function to do one time sensor initialization.
+ *      User need to fill gMmwMssMCB.openCfg before calling this function
+ *
+ *  @param[in]  isFirstTimeOpen     If true then issues MMwave_open
+ *
+ *  @retval
+ *      Success     - 0
+ *  @retval
+ *      Error       - <0
+ */
+int32_t Ranging_openSensor(bool isFirstTimeOpen)
+{
+    int32_t             errCode;
+    MMWave_ErrorLevel   errorLevel;
+    int16_t             mmWaveErrorCode;
+    int16_t             subsysErrorCode;
+    int32_t             retVal;
+    MMWave_CalibrationData     calibrationDataCfg;
+    MMWave_CalibrationData     *ptrCalibrationDataCfg;
+
+    /*  Open mmWave module, this is only done once */
+    if (isFirstTimeOpen == true)
+    {
+
+        System_printf ("Debug: Sending rlRfSetLdoBypassConfig with %d %d %d\n",
+                                            gRFLdoBypassCfg.ldoBypassEnable,
+                                            gRFLdoBypassCfg.supplyMonIrDrop,
+                                            gRFLdoBypassCfg.ioSupplyIndicator);
+        retVal = rlRfSetLdoBypassConfig(RL_DEVICE_MAP_INTERNAL_BSS, (rlRfLdoBypassCfg_t*)&gRFLdoBypassCfg);
+        if(retVal != 0)
+        {
+            System_printf("Error: rlRfSetLdoBypassConfig retVal=%d\n", retVal);
+            return -1;
+        }
+
+        /*  Open mmWave module, this is only done once */
+        /* Setup the calibration frequency */
+        gMmwDssMCB.openCfg.freqLimitLow = 600U;
+        gMmwDssMCB.openCfg.freqLimitHigh = 640U;
+
+        /* start/stop async events */
+        gMmwDssMCB.openCfg.disableFrameStartAsyncEvent = false;
+        gMmwDssMCB.openCfg.disableFrameStopAsyncEvent  = false;
+
+        /* No custom calibration: */
+        gMmwDssMCB.openCfg.useCustomCalibration        = false;
+        gMmwDssMCB.openCfg.customCalibrationEnableMask = 0x0;
+
+        /* calibration monitoring base time unit
+         * setting it to one frame duration as the demo doesnt support any
+         * monitoring related functionality
+         */
+        gMmwDssMCB.openCfg.calibMonTimeUnit            = 1;
+
+        if( (gMmwDssMCB.calibCfg.saveEnable != 0) &&
+        (gMmwDssMCB.calibCfg.restoreEnable != 0) )
+        {
+            /* Error: only one can be enabled at at time */
+            System_printf ("Error: Ranging failed with both save and restore enabled.\n");
+            return -1;
+        }
+
+        if(gMmwDssMCB.calibCfg.restoreEnable != 0)
+        {
+            if(Ranging_calibRestore(&gCalibDataStorage) < 0)
+            {
+                System_printf ("Error: Ranging failed restoring calibration data from flash.\n");
+                return -1;
+            }
+
+            /*  Boot calibration during restore: Disable calibration for:
+                 - Rx gain,
+                 - Rx IQMM,
+                 - Tx phase shifer,
+                 - Tx Power
+
+                 The above calibration data will be restored from flash. Since they are calibrated in a control
+                 way to avoid interference and spec violations.
+                 In this demo, other bit fields(except the above) are enabled as indicated in customCalibrationEnableMask to perform boot time
+                 calibration. The boot time calibration will overwrite the restored calibration data from flash.
+                 However other bit fields can be disabled and calibration data can be restored from flash as well.
+
+                 Note: In this demo, calibration masks are enabled for all bit fields when "saving" the data.
+            */
+            gMmwDssMCB.openCfg.useCustomCalibration        = true;
+            gMmwDssMCB.openCfg.customCalibrationEnableMask = 0x1F0U;
+
+            calibrationDataCfg.ptrCalibData = &gCalibDataStorage.calibData;
+            calibrationDataCfg.ptrPhaseShiftCalibData = &gCalibDataStorage.phaseShiftCalibData;
+            ptrCalibrationDataCfg = &calibrationDataCfg;
+        }
+        else
+        {
+            ptrCalibrationDataCfg = NULL;
+        }
+
+        /* Open the mmWave module: */
+        if (MMWave_open (gMmwDssMCB.ctrlHandle, &gMmwDssMCB.openCfg, ptrCalibrationDataCfg, &errCode) < 0)
+        {
+            /* Error: decode and Report the error */
+            MMWave_decodeError (errCode, &errorLevel, &mmWaveErrorCode, &subsysErrorCode);
+            System_printf ("Error: mmWave Open failed [Error code: %d Subsystem: %d]\n",
+                            mmWaveErrorCode, subsysErrorCode);
+            return -1;
+        }
+
+        /* Save calibration data in flash */
+        if(gMmwDssMCB.calibCfg.saveEnable != 0)
+        {
+
+            retVal = rlRfCalibDataStore(RL_DEVICE_MAP_INTERNAL_BSS, &gCalibDataStorage.calibData);
+            if(retVal != RL_RET_CODE_OK)
+            {
+                /* Error: Calibration data restore failed */
+             System_printf("MSS demo failed rlRfCalibDataStore with Error[%d]\n", retVal);
+                return -1;
+            }
+
+#if (defined(SOC_XWR18XX) || defined(SOC_XWR68XX))
+
+        /* update txIndex in all chunks to get data from all Tx.
+           This should be done regardless of num TX channels enabled in MMWave_OpenCfg_t::chCfg or number of Tx
+           application is interested in. Data for all existing Tx channels should be retrieved
+           from RadarSS and in the order as shown below.
+           RadarSS will return non-zero phase shift values for all the channels enabled via
+           MMWave_OpenCfg_t::chCfg and zero phase shift values for channels disabled in MMWave_OpenCfg_t::chCfg */
+            gCalibDataStorage.phaseShiftCalibData.PhShiftcalibChunk[0].txIndex = 0;
+            gCalibDataStorage.phaseShiftCalibData.PhShiftcalibChunk[1].txIndex = 1;
+            gCalibDataStorage.phaseShiftCalibData.PhShiftcalibChunk[2].txIndex = 2;
+
+            /* Basic validation passed: Restore the phase shift calibration data */
+            retVal = rlRfPhShiftCalibDataStore(RL_DEVICE_MAP_INTERNAL_BSS, &(gCalibDataStorage.phaseShiftCalibData));
+            if (retVal != RL_RET_CODE_OK)
+            {
+                /* Error: Phase shift Calibration data restore failed */
+             System_printf("MSS demo failed rlRfPhShiftCalibDataStore with Error[%d]\n", retVal);
+                return retVal;
+            }
+#endif
+            /* Save data in flash */
+            retVal = Ranging_calibSave(&gMmwDssMCB.calibCfg.calibDataHdr, &gCalibDataStorage);
+            if(retVal < 0)
+            {
+                return retVal;
+            }
+        }
+
+        /*Set up HSI clock*/
+        if(Ranging_mssSetHsiClk() < 0)
+        {
+            System_printf ("Error: Ranging_mssSetHsiClk failed.\n");
+            return -1;
+        }
+
+        /* Open the datapath modules that runs on MSS */
+        //Ranging_dataPathOpen();
+    }
     return 0;
 }
 

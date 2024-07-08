@@ -10,7 +10,6 @@
 
 #include <inc/state_machine_definitions.h>
 
-void Log_To_Uart(State_Information_Ptr_t p_stateInfo, const char* format, ...);
 void Send_State_Machine_Message( uint16_t event_flag );
 void Service_Null_Message(State_Information_Ptr_t p_stateInfo, uint16_t event_flag );
 void Leaving_State( State_Information_Ptr_t p_stateInfo );
@@ -23,7 +22,7 @@ void SM_Func_Stop( State_Information_Ptr_t p_stateInfo );
 
 void SM_Func_Cfg( State_Information_Ptr_t p_stateInfo );
 void SM_Func_Activate_Cfg( State_Information_Ptr_t p_stateInfo );
-void SM_Func_Execute_Cfg( State_Information_Ptr_t p_stateInfo );
+void SM_Func_Start_Execute( State_Information_Ptr_t p_stateInfo );
 void SM_Func_Executing( State_Information_Ptr_t p_stateInfo );
 void SM_Func_Process_Result( State_Information_Ptr_t p_stateInfo );
 

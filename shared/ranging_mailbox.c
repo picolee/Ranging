@@ -17,6 +17,7 @@
 #include "ranging_mailbox.h"
 #include <shared/ranging_mmwave_structures.h>
 #include <shared/ranging_queue.h>
+#include <ti/utils/cycleprofiler/cycle_profiler.h>
 
 ///////////////////////////////////////////////////
 // TYPEDEFS
@@ -29,13 +30,15 @@
 extern MMWave_Dualcore  gMMWave_DualcoreMCB;
 
 Mbox_Handle             g_mboxHandle;
+uint32_t                pingStart;
+uint32_t                pingTime;
 
 static Semaphore_Handle g_writeSemaphore;
 Semaphore_Handle        g_readSemaphore;
 
 // Pre-allocated message pool
-#define MAX_QUEUE_SIZE 5
-static rangingQueue_t g_writeQueue;
+#define MAX_QUEUE_SIZE 20
+static rangingQueue_t   g_writeQueue;
 
 ////////////////////////////////////////////////////
 //  FUNCTIONS
@@ -53,19 +56,8 @@ static rangingQueue_t g_writeQueue;
 * Success - 0
 * Fail < -1
 */
-static int32_t mboxWrite(Ranging_MSS_DSS_Message * message)
+static int32_t mboxWrite(Ranging_MSS_DSS_Message_t * message)
 {
-//    int32_t retVal = -1;
-//
-//    SemaphoreP_pend (gMMWave_DualcoreMCB.mailboxSemHandle, SemaphoreP_WAIT_FOREVER);
-//    retVal = Mailbox_write (g_mboxHandle, (uint8_t*)message, sizeof(Ranging_MSS_DSS_Message));
-//    SemaphoreP_post (gMMWave_DualcoreMCB.mailboxSemHandle);
-//    if (retVal == sizeof(Ranging_MSS_DSS_Message))
-//    {
-//        retVal = 0;
-//    }
-//    return retVal;
-
 
     if (rangingQueueEnqueue(&g_writeQueue, message))
     {
@@ -76,96 +68,152 @@ static int32_t mboxWrite(Ranging_MSS_DSS_Message * message)
     return -1;
 }
 
-void cmdDssToStartSensorNow(rangingTimeSlot_Ptr_t p_timeSlot)
+void populateMessage(Ranging_MSS_DSS_Message_t * message, ipcMessageId_t messageId)
 {
-    Ranging_MSS_DSS_Message message;
-    memcpy(&message.data.timeSlot, p_timeSlot, sizeof(rangingTimeSlot_t));
-    message.messageId = CMD_DSS_TO_START_SENSOR_NOW;
-    mboxWrite(&message);
+    message->messageCreatimeTime.timeLow = Cycleprofiler_getTimeStamp();
+    message->messageId = messageId;
+    message->messageCreatimeTime.timeLow = Cycleprofiler_getTimeStamp();
+#ifdef SUBSYS_DSS
+    message->messageCreatimeTime.timeHigh = TSCH;
+#else
+    message->messageCreatimeTime.timeHigh = 0;
+#endif
+}
+
+void cmdDssToStartSensorNow()
+{
+    Ranging_MSS_DSS_Message_t message;
+    populateMessage(&message, CMD_DSS_TO_START_SENSOR_NOW);
+    if(mboxWrite(&message))
+    {
+        System_printf("Error writing cmdDssToStartSensorNow\n");
+    }
 }
 
 void cmdDssToMsgMssAtNextTimeslot()
 {
-    Ranging_MSS_DSS_Message message;
-    message.messageId = CMD_DSS_TO_MSG_MSS_AT_NEXT_TIMESLOT;
-    mboxWrite(&message);
+    Ranging_MSS_DSS_Message_t message;
+    populateMessage(&message, CMD_DSS_TO_MSG_MSS_AT_NEXT_TIMESLOT);
+    if(mboxWrite(&message))
+    {
+        System_printf("Error writing cmdDssToMsgMssAtNextTimeslot\n");
+    }
 }
 
-void cmdDssToStartSensorAtNextTimeslot(rangingTimeSlot_Ptr_t p_timeSlot)
+void cmdDssToStartSensorAtNextTimeslot()
 {
-    Ranging_MSS_DSS_Message message;
-    memcpy(&message.data.timeSlot, p_timeSlot, sizeof(rangingTimeSlot_t));
-    message.messageId = CMD_DSS_TO_START_SENSOR_AT_NEXT_TIMESLOT ;
-    mboxWrite(&message);
-}
-
-
-void cmdDssToStartSensorAtSpecificTxTime(rangingTimeSlot_Ptr_t   p_timeSlot)
-{
-    Ranging_MSS_DSS_Message message;
-    memcpy(&message.data.timeSlot, p_timeSlot, sizeof(rangingTimeSlot_t));
-    message.messageId = CMD_DSS_TO_START_SENSOR_AT_SPECIFIC_TX_TIME;
-    mboxWrite(&message);
+    Ranging_MSS_DSS_Message_t message;
+    populateMessage(&message, CMD_DSS_TO_START_SENSOR_AT_NEXT_TIMESLOT);
+    if(mboxWrite(&message))
+    {
+        System_printf("Error writing cmdDssToStartSensorAtNextTimeslot\n");
+    }
 }
 
 void sendCfgDataToDSS()
 {
-    Ranging_MSS_DSS_Message message;
-    message.messageId = MSS_SENDS_CFG_DATA_TO_DSS;
-    mboxWrite(&message);
+    Ranging_MSS_DSS_Message_t message;
+    populateMessage(&message, MSS_SENDS_CFG_DATA_TO_DSS);
+    if(mboxWrite(&message))
+    {
+        System_printf("Error writing sendCfgDataToDSS\n");
+    }
 }
 
 void setNextTimeSlotOnDss(rangingTimeSlot_Ptr_t   p_timeSlot)
 {
-    Ranging_MSS_DSS_Message message;
+    Ranging_MSS_DSS_Message_t message;
+    populateMessage(&message, SET_NEXT_TIMESLOT);
     memcpy(&message.data.timeSlot, p_timeSlot, sizeof(rangingTimeSlot_t));
-    message.messageId = SET_NEXT_TIMESLOT;
-    mboxWrite(&message);
+    if(mboxWrite(&message))
+    {
+        System_printf("Error writing setNextTimeSlotOnDss\n");
+    }
 }
 
 void dssReportsResult(DPC_Ranging_Data_t * p_rangingData)
 {
-    Ranging_MSS_DSS_Message message;
+    Ranging_MSS_DSS_Message_t message;
+    populateMessage(&message, DSS_REPORTS_RESULT);
     memcpy(&message.data.rangingData, p_rangingData, sizeof(DPC_Ranging_Data_t));
-    message.messageId = DSS_REPORTS_RESULT;
-    mboxWrite(&message);
+    if(mboxWrite(&message))
+    {
+        System_printf("Error writing dssReportsResult\n");
+    }
 }
 
 void dssReportsSuccess()
 {
-    Ranging_MSS_DSS_Message message;
-    message.messageId = DSS_REPORTS_SUCCESS;
-    mboxWrite(&message);
+    Ranging_MSS_DSS_Message_t message;
+    populateMessage(&message, DSS_REPORTS_SUCCESS);
+    if(mboxWrite(&message))
+    {
+        System_printf("Error writing dssReportsSuccess\n");
+    }
 }
 
 void dssReportsFailure()
 {
-    Ranging_MSS_DSS_Message message;
-    message.messageId = DSS_REPORTS_FAILURE;
-    mboxWrite(&message);
+    Ranging_MSS_DSS_Message_t message;
+    populateMessage(&message, DSS_REPORTS_FAILURE);
+    if(mboxWrite(&message))
+    {
+        System_printf("Error writing dssReportsFailure\n");
+    }
 }
 
 void dssReportsTimeslotStart()
 {
-    Ranging_MSS_DSS_Message message;
-    message.messageId = DSS_REPORTS_NEXT_TIMESLOT_STARTED;
-    mboxWrite(&message);
+    Ranging_MSS_DSS_Message_t message;
+    populateMessage(&message, DSS_REPORTS_NEXT_TIMESLOT_STARTED);
+    if(mboxWrite(&message))
+    {
+        System_printf("Error writing dssReportsTimeslotStart\n");
+    }
 }
 
 void dssReportsSensorStart()
 {
-    Ranging_MSS_DSS_Message message;
-    message.messageId = DSS_REPORTS_SENSOR_STARTED;
-    mboxWrite(&message);
+    Ranging_MSS_DSS_Message_t message;
+    populateMessage(&message, DSS_REPORTS_SENSOR_STARTED);
+    if(mboxWrite(&message))
+    {
+        System_printf("Error writing dssReportsSensorStart\n");
+    }
 }
 
 void dssSendStringToMss(const char *string)
 {
-    Ranging_MSS_DSS_Message message;
-    message.messageId = DSS_SEND_STRING_MESSAGE;
+    Ranging_MSS_DSS_Message_t message;
+    populateMessage(&message, DSS_SEND_STRING_MESSAGE);
     strncpy(message.data.stringData, string, sizeof(message.data.stringData) - 1);
     message.data.stringData[sizeof(message.data.stringData) - 1] = '\0'; // Ensure null termination
-    mboxWrite(&message);
+    if(mboxWrite(&message))
+    {
+        System_printf("Error writing dssSendStringToMss\n");
+    }
+}
+
+
+void ping()
+{
+    Ranging_MSS_DSS_Message_t message;
+    populateMessage(&message, PING);
+    pingStart = Cycleprofiler_getTimeStamp();
+    if(mboxWrite(&message))
+    {
+        System_printf("Error writing ping\n");
+    }
+}
+
+void ack()
+{
+    Ranging_MSS_DSS_Message_t message;
+    populateMessage(&message, ACK);
+    if(mboxWrite(&message))
+    {
+        System_printf("Error writing ack\n");
+    }
 }
 
 /**
@@ -191,7 +239,7 @@ static void mbxCallback( Mbox_Handle handle, Mailbox_Type peer )
 
 // Function for the mailbox write task
 void mailboxWriteTask(UArg arg0, UArg arg1) {
-    Ranging_MSS_DSS_Message message;
+    Ranging_MSS_DSS_Message_t message;
 
     while (1)
     {
@@ -202,7 +250,7 @@ void mailboxWriteTask(UArg arg0, UArg arg1) {
         if (rangingQueueDequeue(&g_writeQueue, &message))
         {
             // Perform the mailbox write
-            if (Mailbox_write(g_mboxHandle, (uint8_t *)&message, sizeof(Ranging_MSS_DSS_Message)) != sizeof(Ranging_MSS_DSS_Message))
+            if (Mailbox_write(g_mboxHandle, (uint8_t *)&message, sizeof(Ranging_MSS_DSS_Message_t)) != sizeof(Ranging_MSS_DSS_Message_t))
             {
                 System_printf("Error: Mailbox write failed\n");
             }

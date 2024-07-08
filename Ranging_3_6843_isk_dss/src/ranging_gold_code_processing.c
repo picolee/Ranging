@@ -17,7 +17,7 @@
 #pragma SET_CODE_SECTION(".l1pcode")
 
 
-Ranging_DSS_MCB    gMmwDssMCB;
+extern Ranging_DSS_MCB    gMmwDssMCB;
 
 
 
@@ -66,7 +66,7 @@ int32_t ranging_setupGoldCode()
             sample_rate,
             chip_duration,
             zeros_duration,
-            workingVariables->scratchBufferTwoL2_32kB,
+            (int16_t *)workingVariables->scratchBufferTwoL2_32kB,
             32*1024))
     {
         if(gold_code.data != NULL)
@@ -195,6 +195,10 @@ void ranging_dssProcessGoldCode (  )
     cmplx32ImRe_t               * ifftBuffer                = (cmplx32ImRe_t *) workingVariables->scratchBufferOneL2_32kB;
     float                       * ifftMagnitudeBuffer       = (float *)         workingVariables->scratchBufferTwoL2_32kB;
     cmplx32ImRe_t               * vectorMultiplyBuffer      = (cmplx32ImRe_t *) workingVariables->scratchBufferTwoL2_32kB;
+
+
+    gMmwDssMCB.dataPathObject.rangingData.processingStartTimeLow = TSCL;
+    gMmwDssMCB.dataPathObject.rangingData.processingStartTimeHigh = TSCH;
 
     detectionStats->wasCodeDetected = 0;
     detectionStats->rxPrn = workingVariables->rxPrn;
@@ -504,4 +508,6 @@ void ranging_dssProcessGoldCode (  )
 
     /* Update outParams */
     gMmwDssMCB.dataPathObject.rangingData.processingTime = stopTime - startTime;
+    gMmwDssMCB.dataPathObject.rangingData.processingEndTimeLow = TSCL;
+    gMmwDssMCB.dataPathObject.rangingData.processingEndTimeHigh = TSCH;
 }

@@ -25,6 +25,9 @@
 
 
 extern Ranging_DSS_MCB    gMmwDssMCB;
+timeLowHighRegisters_t g_MSSTime;
+extern uint32_t         pingStart;
+extern uint32_t         pingTime;
 
 
 /**
@@ -44,13 +47,11 @@ extern Ranging_DSS_MCB    gMmwDssMCB;
 void ranging_dssMboxReadTask(UArg arg0, UArg arg1)
 {
     int32_t retVal;
-    Ranging_MSS_DSS_Message message;
-    uint8_t startSensorAtNextTimeSlot = 0;
-    uint8_t startSensorAtSpecificTxTime = 0;
-    uint8_t msgMssAtNextTimeSlot = 0;
-
+    Ranging_MSS_DSS_Message_t message;
     uint32_t targetTSCL;
     uint32_t targetTSCH;
+    char output_data[128];
+    uint32_t timestamp;
 
     // Initialize the precision timer
     // It will be used to:
@@ -66,7 +67,7 @@ void ranging_dssMboxReadTask(UArg arg0, UArg arg1)
 
         /* Read the message from the peer mailbox: We are not trying to protect the read
         * from the peer mailbox because this is only being invoked from a single thread */
-        retVal = Mailbox_read(g_mboxHandle, (uint8_t*)&message, sizeof(Ranging_MSS_DSS_Message));
+        retVal = Mailbox_read(g_mboxHandle, (uint8_t*)&message, sizeof(Ranging_MSS_DSS_Message_t));
         if (retVal < 0)
         {
             /* Error: Unable to read the message. Setup the error code and return values */
@@ -84,11 +85,20 @@ void ranging_dssMboxReadTask(UArg arg0, UArg arg1)
             // allow us to receive another message in the mailbox while we process the received message.
             Mailbox_readFlush (g_mboxHandle);
 
+
+            g_MSSTime.timeLow = message.messageCreatimeTime.timeLow;
+            g_MSSTime.timeHigh = message.messageCreatimeTime.timeHigh;
+
             // Process the received message:
             switch (message.messageId)
             {
                 case CMD_DSS_TO_START_SENSOR_NOW:
                 {
+                    /*
+                     * When we have SYNC_IN working, this will trigger SYNC_IN
+                     * For now, let the MSS perform the sensor start
+                     * When the task receives the RANGING_NEXT_TIMESLOT_STARTED_EVT,
+                     * it will call dssReportsTimeslotStart();
                     if(startSensor())
                     {
                         dssReportsFailure();
@@ -97,28 +107,50 @@ void ranging_dssMboxReadTask(UArg arg0, UArg arg1)
                     {
                         dssReportsSensorStart();
                     }
+                    */
                     Event_post(gMmwDssMCB.eventHandle, RANGING_NEXT_TIMESLOT_STARTED_EVT);
+                    //dssSendStringToMss("CMD_DSS_TO_START_SENSOR_NOW\r\n");
                     break;
                 }
 
                 case CMD_DSS_TO_START_SENSOR_AT_NEXT_TIMESLOT:
                 {
-                    startSensorAtNextTimeSlot = 1;
-                    memcpy(&gMmwDssMCB.nextTimeslot, &message.data.timeSlot, sizeof(rangingTimeSlot_t));
-                    break;
-                }
+                    // TX
+                    if (gMmwDssMCB.nextTimeslot.slotType ==  SLOT_TYPE_RANGING_RESPONSE_CODE_TX)
+                    {
+                        // SLOT_TYPE_RANGING_RESPONSE_CODE_TX should cause a startSensorAtSpecificTxTime process
+                        dssReportsFailure();
+                    }
 
-                case CMD_DSS_TO_START_SENSOR_AT_SPECIFIC_TX_TIME:
-                {
-                    startSensorAtSpecificTxTime = 1;
-                    memcpy(&gMmwDssMCB.nextTimeslot, &message.data.timeSlot, sizeof(rangingTimeSlot_t));
+                    else if(    gMmwDssMCB.nextTimeslot.slotType ==  SLOT_TYPE_SYNCHRONIZATION_TX ||
+                                gMmwDssMCB.nextTimeslot.slotType ==  SLOT_TYPE_RANGING_START_CODE_TX)
+                    {
+                        // Incorporate the TX delay after slot start
+                        targetTSCL = gMmwDssMCB.nextTimeslot.slotStart.timeLow + gMmwDssMCB.nextTimeslot.transmitDelayAfterSlotStartsDSPCycles;
+                        targetTSCH = gMmwDssMCB.nextTimeslot.slotStart.timeHigh;
+
+                        // Check for roll over
+                        if(targetTSCL < gMmwDssMCB.nextTimeslot.slotStart.timeLow)
+                        {
+                            targetTSCH += 1;
+                        }
+
+                        launchSensorAtTargetTime(targetTSCL, targetTSCH);
+                    }
+
+                    // RX
+                    else
+                    {
+                        launchSensorAtTargetTime(gMmwDssMCB.nextTimeslot.slotStart.timeLow, gMmwDssMCB.nextTimeslot.slotStart.timeHigh);
+                    }
+                    //dssSendStringToMss("CMD_DSS_TO_START_SENSOR_AT_NEXT_TIMESLOT\r\n");
                     break;
                 }
 
                 case CMD_DSS_TO_MSG_MSS_AT_NEXT_TIMESLOT:
                 {
-                    msgMssAtNextTimeSlot = 1;
-                    memcpy(&gMmwDssMCB.nextTimeslot, &message.data.timeSlot, sizeof(rangingTimeSlot_t));
+                    msgMssAtTargetTime(gMmwDssMCB.nextTimeslot.slotStart.timeLow, gMmwDssMCB.nextTimeslot.slotStart.timeHigh);
+                    //dssSendStringToMss("CMD_DSS_TO_MSG_MSS_AT_NEXT_TIMESLOT\r\n");
                     break;
                 }
 
@@ -130,6 +162,7 @@ void ranging_dssMboxReadTask(UArg arg0, UArg arg1)
                 case SET_CURRENT_TIMESLOT:
                 {
                     memcpy(&gMmwDssMCB.currentTimeslot, &message.data.timeSlot, sizeof(rangingTimeSlot_t));
+                    //dssSendStringToMss("SET_CURRENT_TIMESLOT\r\n");
                     break;
                 }
 
@@ -137,7 +170,29 @@ void ranging_dssMboxReadTask(UArg arg0, UArg arg1)
                 {
                     memcpy(&gMmwDssMCB.nextTimeslot, &message.data.timeSlot, sizeof(rangingTimeSlot_t));
                     Event_post(gMmwDssMCB.eventHandle, RANGING_CONFIG_EVT);
+                    //dssSendStringToMss("SET_NEXT_TIMESLOT\r\n");
                     break;
+                }
+
+                case PING:
+                {
+                    ack();
+                    break;
+                }
+
+                case ACK:
+                {
+                    pingTime = Cycleprofiler_getTimeStamp() - pingStart;
+                    timestamp = Cycleprofiler_getTimeStamp();
+
+                    snprintf(output_data,
+                             sizeof(output_data),
+                             "Ping Start: %u End: %u Duration: %u, DSS Time: %u\r\n",
+                             pingStart,
+                             timestamp,
+                             pingTime,
+                             g_MSSTime.timeLow);
+                    dssSendStringToMss(&output_data);
                 }
 
                 default:
@@ -148,64 +203,6 @@ void ranging_dssMboxReadTask(UArg arg0, UArg arg1)
                     break;
                 }
             }
-        }
-
-        // Did we receive a command to start the sensor at the next time slot?
-        if(startSensorAtNextTimeSlot)
-        {
-            // TX
-            if(     gMmwDssMCB.nextTimeslot.slotType ==  SLOT_TYPE_SYNCHRONIZATION_TX ||
-                    gMmwDssMCB.nextTimeslot.slotType ==  SLOT_TYPE_RANGING_START_CODE_TX)
-            {
-                // Incorporate the TX delay after slot start
-                targetTSCL = gMmwDssMCB.nextTimeslot.slotStartTSCL + gMmwDssMCB.nextTimeslot.transmitDelayAfterSlotStartsDSPCycles;
-                targetTSCH = gMmwDssMCB.nextTimeslot.slotStartTSCH;
-
-                // Check for roll over
-                if(targetTSCL < gMmwDssMCB.nextTimeslot.slotStartTSCL)
-                {
-                    targetTSCH += 1;
-                }
-
-                launchSensorAtTargetTime(targetTSCL, targetTSCH);
-                Event_post(gMmwDssMCB.eventHandle, RANGING_CONFIG_EVT);
-            }
-
-            else if (gMmwDssMCB.nextTimeslot.slotType ==  SLOT_TYPE_RANGING_RESPONSE_CODE_TX)
-            {
-                // SLOT_TYPE_RANGING_RESPONSE_CODE_TX should cause a startSensorAtSpecificTxTime process
-                dssReportsFailure();
-            }
-
-            // RX
-            else
-            {
-                launchSensorAtTargetTime(gMmwDssMCB.nextTimeslot.slotStartTSCL, gMmwDssMCB.nextTimeslot.slotStartTSCH);
-                Event_post(gMmwDssMCB.eventHandle, RANGING_CONFIG_EVT);
-            }
-            startSensorAtNextTimeSlot = 0;
-        }
-
-        // Did we receive a command to TX at a specific time?
-        if(startSensorAtSpecificTxTime)
-        {
-            if( gMmwDssMCB.nextTimeslot.slotType !=  SLOT_TYPE_RANGING_RESPONSE_CODE_TX )
-            {
-                dssReportsFailure();
-            }
-            else
-            {
-                launchSensorAtTargetTime(gMmwDssMCB.nextTimeslot.txResponseStartTSCL, gMmwDssMCB.nextTimeslot.txResponseStartTSCH);
-            }
-            Event_post(gMmwDssMCB.eventHandle, RANGING_CONFIG_EVT);
-            startSensorAtSpecificTxTime = 0;
-        }
-
-        // Did we receive a command to wake up the MSS at the next time slot?
-        if(msgMssAtNextTimeSlot)
-        {
-            msgMssAtTargetTime(gMmwDssMCB.nextTimeslot.slotStartTSCL, gMmwDssMCB.nextTimeslot.slotStartTSCH);
-            msgMssAtNextTimeSlot = 0;
         }
     }
 }

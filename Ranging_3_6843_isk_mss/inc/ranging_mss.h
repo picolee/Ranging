@@ -492,9 +492,6 @@ typedef struct Ranging_MSS_MCB_t
     /*! @brief   RF frequency scale factor, = 2.7 for 60GHz device, = 3.6 for 76GHz device */
     double                      rfFreqScaleFactor;
 
-    /*! @brief   Semaphore handle to signal DSS mailbox read from Mailbox read callback. */
-    Semaphore_Handle            dssMboxSemHandle;
-
     /*! @brief   Maiblox handle to communicate with DSS. */
     Mbox_Handle                 peerMailbox;
 

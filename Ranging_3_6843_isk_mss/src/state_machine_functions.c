@@ -12,14 +12,19 @@
 #include <inc/state_machine_definitions.h>
 #include <inc/state_machine_functions.h>
 #include <inc/ranging_dpc_interface.h>
+#include <inc/uart_logging.h>
 #include <inc/ranging_mss.h>                // For Ranging_debugAssert
 #include <shared/ranging_mailbox.h>         // For interprocess communications with the DSP core
 #include <stdio.h>
 #include <ti/utils/cli/cli.h>
+#include <ti/utils/cycleprofiler/cycle_profiler.h>
 
 /* ----------------------------------------------------------------------------------------------------------------- *
  *                                                  DEFINES
  * ----------------------------------------------------------------------------------------------------------------- */
+
+#define ENABLE_UART_LOGGING
+#undef ENABLE_UART_LOGGING
 
 /* ----------------------------------------------------------------------------------------------------------------- *
  *                                                  Global Variables
@@ -42,61 +47,60 @@ extern int32_t Ranging_dataPathConfig (uint16_t rxPrn);
 extern void Ranging_dataPathStart (void);
 extern Ranging_MSS_MCB    gMmwMssMCB;
 
+// From mss_ipc_mailboc_task.c
+extern timeLowHighRegisters_t  g_DSSTime;
+
 int32_t MMWave_config_internal (MMWave_Handle mmWaveHandle, MMWave_CtrlCfg* ptrControlCfg, int32_t* errCode);
+
+int32_t Ranging_mmWaveCtrlStop (void);
 
 /* ----------------------------------------------------------------------------------------------------------------- *
  *                                                  Local Variables
  * ----------------------------------------------------------------------------------------------------------------- */
 
-char errorString[128];
-char logString[128];
+char errorString[256];
+
+/* ----------------------------------------------------------------------------------------------------------------- *
+ *                                                  Functions
+ * ----------------------------------------------------------------------------------------------------------------- */
 
 void synchronizeRadio(State_Information_Ptr_t p_stateInfo)
 {
-    gMmwMssMCB.synchronized = TRUE;
-    Log_To_Uart( p_stateInfo, "Synchronized!\r\n" );
-}
-
-void Log_To_Uart(State_Information_Ptr_t p_stateInfo, const char* format, ...)
-{
-    // Make sure we're not in an ISR
-    if(BIOS_getThreadType() == BIOS_ThreadType_Task)
+    if(Task_self() == p_stateInfo->stateMachine->taskHandle)
     {
-        // Calling the UART from some tasks causes an error
-        // Only call it from the state machine task
-        if(Task_self() == p_stateInfo->stateMachine->taskHandle)
-        {
-            if (p_stateInfo->stateMachine->uartHandle != NULL)
-            {
-                va_list args;
-                va_start(args, format);
-                vsnprintf(logString, sizeof(logString), format, args);
-                va_end(args);
-
-                UART_writePolling(p_stateInfo->stateMachine->uartHandle, (uint8_t*)logString, strlen(logString));
-            }
-        }
+        gMmwMssMCB.synchronized             = TRUE;
+        Log_To_Uart( p_stateInfo->stateMachine->uartHandle, "Synchronized!\r\n" );
     }
 }
 
 // Define generic behavior that occurs whenever we receive an invalid event
 void Service_Null_Message(State_Information_Ptr_t p_stateInfo, uint16_t message_id )
 {
-    Log_To_Uart(    p_stateInfo,
+    StateMachine_Ptr_t sm = p_stateInfo->stateMachine;
+    Log_To_Uart(    sm->uartHandle,
                     "NULL msg %u %s received for state %u %s\r\n",
                     message_id,
-                    message_to_string_table[message_id],
-                    State_Machine.currentState->stateNumber,
-                    state_to_string_table[State_Machine.currentState->stateNumber] );
+                    sm->message_to_string[message_id],
+                    sm->currentState->stateNumber,
+                    sm->state_to_string[sm->currentState->stateNumber] );
 }
 
 // Helper function to put the error into a standard string format
-void Format_Error_String( char * error )
+void Format_Error_String(State_Information_Ptr_t p_stateInfo,  char * error )
 {
+    rangingTimeSlot_Ptr_t p_currentTimeSlot;
+    rangingTimeSlot_Ptr_t p_nextTimeSlot;
+
+    p_currentTimeSlot   = getCurrentTimeSlot(&gMmwMssMCB.timeSlotList);
+    p_nextTimeSlot      = getNextTimeSlot(&gMmwMssMCB.timeSlotList);
     snprintf(errorString, sizeof(errorString),
-             "Error:%s in state %u\r\n",
+             "Error:%s in state %u %s, times entered: %u, Current TSlot: %s, Next TSlot: %s\r\n",
              error,
-             State_Machine.currentState->stateNumber );
+             p_stateInfo->stateNumber,
+             state_to_string_table[p_stateInfo->stateNumber],
+             p_stateInfo->timesEntered,
+             slotTypeNames[p_currentTimeSlot->slotType],
+             slotTypeNames[p_nextTimeSlot->slotType]);
 }
 
 void Send_State_Machine_Message( uint16_t message_id )
@@ -104,10 +108,13 @@ void Send_State_Machine_Message( uint16_t message_id )
     MsgObj msg;
     msg.id = message_id;
 
-    Log_To_Uart(State_Machine.currentState,
-                "\t\t%s\tsent\t%s\r\n",
-                state_to_string_table[State_Machine.currentState->stateNumber],
-                message_to_string_table[message_id]);
+    if(Task_self() == State_Machine.taskHandle)
+    {
+        Log_To_Uart(State_Machine.uartHandle,
+                    "\t\t%s\tsent\t%s\r\n",
+                    state_to_string_table[State_Machine.currentState->stateNumber],
+                    message_to_string_table[message_id]);
+    }
 
 
     if (!Mailbox_post(State_Machine.mbxHandle, &msg, BIOS_NO_WAIT))
@@ -126,18 +133,29 @@ void Send_State_Machine_Message( uint16_t message_id )
 
 void Leaving_State( State_Information_Ptr_t p_stateInfo )
 {
-    Log_To_Uart(p_stateInfo,
-                "\t\t%s\tEnd\r\n",
-                state_to_string_table[p_stateInfo->stateNumber]);
+    const char *state_string = p_stateInfo->stateMachine->state_to_string[p_stateInfo->stateNumber];
+    if(Task_self() == p_stateInfo->stateMachine->taskHandle)
+    {
+        Log_To_Uart(p_stateInfo->stateMachine->uartHandle,
+                    "\t\t%s\tEnd\r\n",
+                    state_string);
+    }
+    p_stateInfo->stateEndTimeCycles = Cycleprofiler_getTimeStamp();
+    p_stateInfo->stateDurationCycles = p_stateInfo->stateEndTimeCycles - p_stateInfo->stateStartTimeCycles;
 }
 
 void Entering_State( State_Information_Ptr_t p_stateInfo )
 {
-      p_stateInfo->timesEntered++;
-      Log_To_Uart(p_stateInfo,
+    const char *state_string = p_stateInfo->stateMachine->state_to_string[p_stateInfo->stateNumber];
+    p_stateInfo->timesEntered++;
+    p_stateInfo->stateStartTimeCycles = Cycleprofiler_getTimeStamp();
+    if(Task_self() == p_stateInfo->stateMachine->taskHandle)
+    {
+        Log_To_Uart(p_stateInfo->stateMachine->uartHandle,
                   "\t\t%s\tStart\t%u\r\n",
-                  state_to_string_table[p_stateInfo->stateNumber],
+                  state_string,
                   p_stateInfo->timesEntered);
+    }
 }
 
 void SM_Func_Initialization( State_Information_Ptr_t p_stateInfo )
@@ -146,7 +164,7 @@ void SM_Func_Initialization( State_Information_Ptr_t p_stateInfo )
     // CONFIGURE SENSOR
     if ( Ranging_SetBaseConfiguration( ) )
     {
-        Format_Error_String("Ranging_SetBaseConfiguration");
+        Format_Error_String(p_stateInfo, "Ranging_SetBaseConfiguration");
         Send_State_Machine_Message( SM_MSG_FAILED );
         return;
     }
@@ -157,7 +175,7 @@ void SM_Func_Initialization( State_Information_Ptr_t p_stateInfo )
     {
         if(Ranging_openSensor(true))
         {
-            Format_Error_String("Ranging_openSensor");
+            Format_Error_String(p_stateInfo, "Ranging_openSensor");
             Send_State_Machine_Message( SM_MSG_FAILED );
             return;
         }
@@ -182,7 +200,6 @@ void SM_Func_Stop( State_Information_Ptr_t p_stateInfo )
     if (gMmwMssMCB.sensorState == Ranging_SensorState_STARTED)
     {
         Ranging_stopSensor();
-        gMmwMssMCB.sensorState = Ranging_SensorState_STOPPED;
     }
 }
 
@@ -206,11 +223,11 @@ void SM_Func_Update_List_Of_Timeslots( State_Information_Ptr_t p_stateInfo )
 
     p_currentTimeSlot   = getCurrentTimeSlot(&gMmwMssMCB.timeSlotList);
     p_nextTimeSlot      = getNextTimeSlot(&gMmwMssMCB.timeSlotList);
-    Log_To_Uart(    p_stateInfo,
-                    "Current slot: %s \r\n",
+    Log_To_Uart(    p_stateInfo->stateMachine->uartHandle,
+                    "Cslot: %s \r\n",
                     slotTypeNames[p_currentTimeSlot->slotType] );
-    Log_To_Uart(    p_stateInfo,
-                    "Next slot: %s \r\n",
+    Log_To_Uart(    p_stateInfo->stateMachine->uartHandle,
+                    "Nslot: %s \r\n",
                     slotTypeNames[p_nextTimeSlot->slotType] );
 
     Send_State_Machine_Message( SM_MSG_COMPLETED );
@@ -223,7 +240,7 @@ void SM_Func_Cfg( State_Information_Ptr_t p_stateInfo )
 
     if (gMmwMssMCB.sensorState == Ranging_SensorState_STARTED)
     {
-        Format_Error_String("Sensor already started SM_Func_Cfg");
+        Format_Error_String(p_stateInfo, "Sensor already started SM_Func_Cfg");
         Send_State_Machine_Message( SM_MSG_FAILED );
         return;
     }
@@ -234,15 +251,9 @@ void SM_Func_Cfg( State_Information_Ptr_t p_stateInfo )
         case SLOT_TYPE_SYNCHRONIZATION_TX:
         case SLOT_TYPE_RANGING_START_CODE_TX:
         case SLOT_TYPE_RANGING_RESPONSE_CODE_TX:
-            if (Ranging_SetBaseConfiguration( ))
-            {
-                Format_Error_String("Ranging_SetBaseConfiguration");
-                Send_State_Machine_Message( SM_MSG_FAILED );
-                return;
-            }
             if ( Ranging_CreateTransmitConfiguration(p_nextTimeSlot->frequencyInGHz, p_nextTimeSlot->goldCodeNumBits, p_nextTimeSlot->prn ) )
             {
-                Format_Error_String("Ranging_CreateTransmitConfiguration");
+                Format_Error_String(p_stateInfo, "Ranging_CreateTransmitConfiguration");
                 Send_State_Machine_Message( SM_MSG_FAILED );
                 return;
             }
@@ -251,15 +262,9 @@ void SM_Func_Cfg( State_Information_Ptr_t p_stateInfo )
         case SLOT_TYPE_SYNCHRONIZATION_RX:
         case SLOT_TYPE_RANGING_START_CODE_RX:
         case SLOT_TYPE_RANGING_RESPONSE_CODE_RX:
-            if (Ranging_SetBaseConfiguration( ))
-            {
-                Format_Error_String("Ranging_SetBaseConfiguration");
-                Send_State_Machine_Message( SM_MSG_FAILED );
-                return;
-            }
             if ( Ranging_CreateReceiveConfiguration( p_nextTimeSlot->frequencyInGHz ) )
             {
-                Format_Error_String("Ranging_CreateReceiveConfiguration");
+                Format_Error_String(p_stateInfo, "Ranging_CreateReceiveConfiguration");
                 Send_State_Machine_Message( SM_MSG_FAILED );
                 return;
             }
@@ -269,7 +274,7 @@ void SM_Func_Cfg( State_Information_Ptr_t p_stateInfo )
             // No configuration required
             break;
         default:
-            Format_Error_String("Bad time slot type for CFG\n");
+            Format_Error_String(p_stateInfo, "Bad time slot type for CFG\n");
             Send_State_Machine_Message( SM_MSG_FAILED );
             break;
     }
@@ -286,7 +291,7 @@ void SM_Func_Activate_Cfg( State_Information_Ptr_t p_stateInfo )
 
     if (gMmwMssMCB.sensorState == Ranging_SensorState_STARTED)
     {
-        Format_Error_String("Sensor already started SM_Func_Activate_Cfg");
+        Format_Error_String(p_stateInfo, "Sensor already started SM_Func_Activate_Cfg");
         Send_State_Machine_Message( SM_MSG_FAILED );
         return;
     }
@@ -298,7 +303,7 @@ void SM_Func_Activate_Cfg( State_Information_Ptr_t p_stateInfo )
         case SLOT_TYPE_RANGING_RESPONSE_CODE_TX:
             if ( Ranging_ActivateTransmitConfiguration( ) )
             {
-                Format_Error_String("Ranging_ActivateTransmitConfiguration");
+                Format_Error_String(p_stateInfo, "Ranging_ActivateTransmitConfiguration");
                 Send_State_Machine_Message( SM_MSG_FAILED );
             }
             break;
@@ -308,7 +313,7 @@ void SM_Func_Activate_Cfg( State_Information_Ptr_t p_stateInfo )
         case SLOT_TYPE_RANGING_RESPONSE_CODE_RX:
             if ( Ranging_ActivateReceiveConfiguration( ) )
             {
-                Format_Error_String("Ranging_ActivateReceiveConfiguration");
+                Format_Error_String(p_stateInfo, "Ranging_ActivateReceiveConfiguration");
                 Send_State_Machine_Message( SM_MSG_FAILED );
             }
             break;
@@ -318,7 +323,7 @@ void SM_Func_Activate_Cfg( State_Information_Ptr_t p_stateInfo )
             break;
 
         default:
-            Format_Error_String("Bad time slot type for CFG\n");
+            Format_Error_String(p_stateInfo, "Bad time slot type for CFG\n");
             Send_State_Machine_Message( SM_MSG_FAILED );
             break;
     }
@@ -326,20 +331,20 @@ void SM_Func_Activate_Cfg( State_Information_Ptr_t p_stateInfo )
     Send_State_Machine_Message( SM_MSG_COMPLETED );
 }
 
-void SM_Func_Execute_Cfg( State_Information_Ptr_t p_stateInfo )
+void SM_Func_Start_Execute( State_Information_Ptr_t p_stateInfo )
 {
     rangingTimeSlot_Ptr_t p_nextTimeSlot = getNextTimeSlot(&gMmwMssMCB.timeSlotList);
     int32_t     errCode = 0;
     if (gMmwMssMCB.sensorState == Ranging_SensorState_STARTED)
     {
-        Format_Error_String("Sensor already started SM_Func_Start_Sensor");
+        Format_Error_String(p_stateInfo, "Sensor already started SM_Func_Start_Sensor");
         Send_State_Machine_Message( SM_MSG_FAILED );
         return;
     }
 
     if (gMmwMssMCB.sensorState == Ranging_SensorState_INIT)
     {
-        Format_Error_String("Sensor not opened SM_Func_Start_Sensor");
+        Format_Error_String(p_stateInfo, "Sensor not opened SM_Func_Start_Sensor");
         Send_State_Machine_Message( SM_MSG_FAILED );
         return;
     }
@@ -368,6 +373,7 @@ void SM_Func_Execute_Cfg( State_Information_Ptr_t p_stateInfo )
 
             //////////////////////////////////////////////////////////////////
             // 1. CONFIGURE SENSOR
+            //Task_sleep(10);
             if (MMWave_config_internal (gMmwMssMCB.ctrlHandle, &gMmwMssMCB.cfg.ctrlCfg, &errCode) < 0)
             {
                 MMWave_ErrorLevel   errorLevel;
@@ -378,29 +384,24 @@ void SM_Func_Execute_Cfg( State_Information_Ptr_t p_stateInfo )
                 MMWave_decodeError (errCode, &errorLevel, &mmWaveErrorCode, &subsysErrorCode);
                 System_printf ("Error: mmWave Config failed [Error code: %d Subsystem: %d]\n",
                                 mmWaveErrorCode, subsysErrorCode);
-                Format_Error_String("Error MMWave_config");
+                Format_Error_String(p_stateInfo, "Error MMWave_config");
                 Send_State_Machine_Message( SM_MSG_FAILED );
                 return;
             }
-            else
-            {
 
-                //////////////////////////////////////////////////////////////////
-                // 2. CONFIGURE DATAPATH
-                // This is where we set the PRN for the DSS to look for
-                if(Ranging_dataPathConfig(p_nextTimeSlot->prn))
-                {
-                    Format_Error_String("Error Ranging_dataPathConfig");
-                    Send_State_Machine_Message( SM_MSG_FAILED );
-                    return;
-                }
+            //////////////////////////////////////////////////////////////////
+            // 2. CONFIGURE DATAPATH
+            // This is where we set the PRN for the DSS to look for
+            if(Ranging_dataPathConfig(p_nextTimeSlot->prn))
+            {
+                Format_Error_String(p_stateInfo, "Error Ranging_dataPathConfig");
+                Send_State_Machine_Message( SM_MSG_FAILED );
+                return;
             }
 
             //////////////////////////////////////////////////////////////////
             // 3. START SENSOR
-            // Starts the Data Path Module (DPM) running on the DSP core
-            // Waits for it to start
-            Ranging_dataPathStart();    // Blocking
+            //Ranging_dataPathStart();    // Starts the LVDS module
 
             // Send a command to the DSS to start the sensor
             // When the sensor is started, it triggers the MSS sensor start callback function
@@ -416,11 +417,21 @@ void SM_Func_Execute_Cfg( State_Information_Ptr_t p_stateInfo )
                     synchronizeRadio(p_stateInfo);
                 }
 
-                cmdDssToStartSensorNow(p_nextTimeSlot);
+                // Once SYNC_IN works, we will configure the sensor to start upon SYNC_IN
+                // The MSS will configure it, and the DSS will send SYNC_IN
+                // Until then, we start it from the MSS
+                // Ranging_startSensor();
+
+                // Until SYNC_IN works, this just has the DSS call us back with a
+                // DSS_REPORTS_NEXT_TIMESLOT_STARTED message
+                cmdDssToStartSensorNow();
             }
             else
             {
-                cmdDssToStartSensorAtNextTimeslot(p_nextTimeSlot);
+                // Until SYNC_IN works, this just has the DSS call us back with a
+                // DSS_REPORTS_NEXT_TIMESLOT_STARTED message
+                // At the start of the next timeslot
+                cmdDssToStartSensorAtNextTimeslot();
             }
 
             gMmwMssMCB.sensorState = Ranging_SensorState_STARTED;
@@ -433,7 +444,7 @@ void SM_Func_Execute_Cfg( State_Information_Ptr_t p_stateInfo )
             break;
 
         default:
-            Format_Error_String("Bad time slot type for EXECUTE\n");
+            Format_Error_String(p_stateInfo, "Bad time slot type for EXECUTE\n");
             Send_State_Machine_Message( SM_MSG_FAILED );
             break;
     }
@@ -441,17 +452,21 @@ void SM_Func_Execute_Cfg( State_Information_Ptr_t p_stateInfo )
 
 void SM_Func_Executing( State_Information_Ptr_t p_stateInfo )
 {
+    // This function is triggered by a TIMESLOT_STARTED message
     rangingTimeSlot_Ptr_t p_currentTimeSlot;
-    rangingTimeSlot_Ptr_t p_nextTimeSlot;
+    rangingTimeSlot_Ptr_t p_nextTimeSlot = getNextTimeSlot(&gMmwMssMCB.timeSlotList);
 
-    // This function is triggered by a SENSOR_START message
-    // Or a TIMESLOT_STARTED message
-    // Both occur at the next time slot
-    // However, time slots are only meaningful if we have sync'd at least once
+    // Once SYNC_IN works, this will be called from SM_Func_Execute_Cfg
+    if(p_nextTimeSlot->slotType != SLOT_TYPE_NO_OP)
+    {
+        Ranging_startSensor();
+    }
+
     // If we have never sync'd stay in this time slot (presumably RX SYNC, SLOT 0)
     if(gMmwMssMCB.synchronized)
     {
         incrementCurrentTimeSlot(&gMmwMssMCB.timeSlotList);
+        p_nextTimeSlot->timesEntered++;
     }
     else
     {
@@ -459,6 +474,7 @@ void SM_Func_Executing( State_Information_Ptr_t p_stateInfo )
         if(p_nextTimeSlot->slotType == SLOT_TYPE_SYNCHRONIZATION_RX)
         {
             incrementCurrentTimeSlot(&gMmwMssMCB.timeSlotList);
+            p_nextTimeSlot->timesEntered++;
         }
     }
 
@@ -466,12 +482,14 @@ void SM_Func_Executing( State_Information_Ptr_t p_stateInfo )
     p_nextTimeSlot    = getNextTimeSlot(&gMmwMssMCB.timeSlotList);
     computeNextStartTime(p_currentTimeSlot, p_nextTimeSlot);
 
-    Log_To_Uart(    p_stateInfo,
-                    "Current slot: %s \r\n",
-                    slotTypeNames[p_currentTimeSlot->slotType] );
-    Log_To_Uart(    p_stateInfo,
-                    "Next slot: %s \r\n",
-                    slotTypeNames[p_nextTimeSlot->slotType] );
+    Log_To_Uart(    p_stateInfo->stateMachine->uartHandle,
+                    "Cslot: %s %u\r\n",
+                    slotTypeNames[p_currentTimeSlot->slotType],
+                    p_currentTimeSlot->timesEntered);
+    Log_To_Uart(    p_stateInfo->stateMachine->uartHandle,
+                    "Nslot: %s %u \r\n",
+                    slotTypeNames[p_nextTimeSlot->slotType],
+                    p_nextTimeSlot->timesEntered );
 
     // If this time slot is a no-op, go ahead and get ready for the next time slot
     // Otherwise, wait for a result from the DSS
@@ -485,10 +503,15 @@ void SM_Func_Process_Result( State_Information_Ptr_t p_stateInfo )
 {
     rangingTimeSlot_Ptr_t p_currentTimeSlot = getCurrentTimeSlot(&gMmwMssMCB.timeSlotList);
     rangingTimeSlot_Ptr_t p_nextTimeSlot    = getNextTimeSlot(&gMmwMssMCB.timeSlotList);
+
+    // Stop the sensor
+    Ranging_stopSensor();
+    Log_To_Uart( p_stateInfo->stateMachine->uartHandle, "Stopped sensor\r\n" );
+
     switch(p_currentTimeSlot->slotType)
     {
         case SLOT_TYPE_SYNCHRONIZATION_TX:
-            if(p_currentTimeSlot->slotStartTSCL == 0 && p_currentTimeSlot->slotStartTSCH == 0)
+            if(p_currentTimeSlot->slotStart.timeLow == 0 && p_currentTimeSlot->slotStart.timeHigh == 0)
             {
                 // This is the first TX.
                 // We need to set its start time, and update the next timeslot's start time.
@@ -541,7 +564,7 @@ void SM_Func_Process_Result( State_Information_Ptr_t p_stateInfo )
             break;
 
         default:
-            Format_Error_String("Bad time slot type for process result\n");
+            Format_Error_String(p_stateInfo, "Bad time slot type for process result\n");
             Send_State_Machine_Message( SM_MSG_FAILED );
             break;
     }
@@ -562,7 +585,6 @@ void SM_Func_Task_Failed( State_Information_Ptr_t p_stateInfo )
     if (gMmwMssMCB.sensorState == Ranging_SensorState_STARTED)
     {
         Ranging_stopSensor();
-        gMmwMssMCB.sensorState = Ranging_SensorState_STOPPED;
     }
 
     System_printf("**********FAILURE\n");
